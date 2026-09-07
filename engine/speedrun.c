@@ -142,6 +142,7 @@ int speedrun_cheats_enabled(void) { return 0; }
 #define SPEEDRUN_FLAG_NOMONSTERS 1
 #define SPEEDRUN_FLAG_FAST       2
 #define SPEEDRUN_FLAG_RESPAWN    4
+#define SPEEDRUN_FLAG_KEEP_WIPE  8   // free play: no countdown to sync with, so keep the classic melt
 static int speedrun_nomonsters_flag, speedrun_fast_flag, speedrun_respawn_flag;
 int speedrun_nomonsters_requested(void) { return speedrun_nomonsters_flag; }
 int speedrun_fast_requested(void) { return speedrun_fast_flag; }
@@ -173,7 +174,7 @@ EMSCRIPTEN_KEEPALIVE void speedrun_start(int skill, int episode, int map, int fl
     speedrun_nomonsters_flag = (flags & SPEEDRUN_FLAG_NOMONSTERS) ? 1 : 0;
     speedrun_fast_flag = (flags & SPEEDRUN_FLAG_FAST) ? 1 : 0;
     speedrun_respawn_flag = (flags & SPEEDRUN_FLAG_RESPAWN) ? 1 : 0;
-    speedrun_skip_wipe_flag = 1;
+    speedrun_skip_wipe_flag = (flags & SPEEDRUN_FLAG_KEEP_WIPE) ? 0 : 1;
 
     // A menu left open on top of a fresh level would swallow the first
     // keypresses; G_InitNew itself already un-pauses (paused = false +

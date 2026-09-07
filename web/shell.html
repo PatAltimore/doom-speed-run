@@ -518,6 +518,13 @@
       font-size: 14px;
       margin-left: auto;
     }
+    .free-play { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; align-items: end; }
+    .free-row { display: flex; flex-direction: column; gap: 3px; font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+    .free-row .chip-select { margin-left: 0; width: 100%; font-size: 16px; text-transform: none; letter-spacing: 0; }
+    .free-check { display: flex; align-items: center; gap: 8px; font-size: 16px; color: var(--text); cursor: pointer; }
+    .free-check input { width: 18px; height: 18px; accent-color: var(--red-bright); }
+    #free-start { font-size: 17px; padding: 8px; }
+    .free-note { grid-column: 1 / -1; margin: 0; }
     .run-restart { flex: 0 0 auto; font-size: 14px; padding: 5px 10px; white-space: nowrap; }
     .run-restart[hidden] { display: none; }
     .share-row .btn { flex: 1 1 30%; font-size: 15px; padding: 7px 6px; }
@@ -670,6 +677,15 @@
       <div class="filter-bar" id="challenge-filters"></div>
       <div class="challenge-list" id="challenge-list"></div>
 
+      <h2>Free Play</h2>
+      <div class="free-play">
+        <label class="free-row"><span>Map</span><select class="chip-select" id="free-map"></select></label>
+        <label class="free-row"><span>Skill</span><select class="chip-select" id="free-skill"></select></label>
+        <label class="free-check"><input type="checkbox" id="free-nomo"> No monsters</label>
+        <button class="btn" id="free-start" type="button">Warp</button>
+        <p class="row-meta free-note">No timer, no rules — just play. Cheat codes stay off. The game keeps going into the next level when you exit.</p>
+      </div>
+
       <h2>Share Your Times</h2>
       <div class="share-row" id="share-all-row"></div>
       <p class="ack-note">
@@ -752,7 +768,7 @@
     var SK_EASY = 0, SK_HMP = 2, SK_UV = 3, SK_NM = 4;
     var SKILL_NAMES = { 0: "I'm Too Young to Die", 1: "Hey, Not Too Rough", 2: "Hurt Me Plenty", 3: "Ultra-Violence", 4: "Nightmare!" };
     // Engine start flags (bitmask; mirrors SPEEDRUN_FLAG_* in speedrun.c).
-    var F_NOMONSTERS = 1, F_FAST = 2, F_RESPAWN = 4;
+    var F_NOMONSTERS = 1, F_FAST = 2, F_RESPAWN = 4, F_KEEP_WIPE = 8;
     var TIER_NAMES = ["beginner", "intermediate", "hard"];
     var TIERS = {
       beginner:     { name: "Beginner", cls: "tier-beginner" },
@@ -1157,6 +1173,46 @@
       countdownTimer = setTimeout(cancelCountdown, 500);
     }
 
+    // ---- Free play: warp to any map at any skill, no timer ----
+    // Goes through the same engine start as a challenge, but flagged so
+    // the level load that follows is never mistaken for a timed attempt
+    // (a free E1M1 on Ultra-Violence would otherwise match the daily).
+    var freePlayPending = false;
+    (function initFreePlay() {
+      var mapSel = document.getElementById("free-map");
+      var skillSel = document.getElementById("free-skill");
+      var nomoBox = document.getElementById("free-nomo");
+      var seenMaps = {};
+      MAPS.forEach(function (m) {
+        if (seenMaps[m.map]) return;
+        seenMaps[m.map] = true;
+        var o = el("option", "", m.level + " · " + m.name); o.value = m.map; mapSel.appendChild(o);
+      });
+      [0, 1, 2, 3, 4].forEach(function (sk) {
+        var o = el("option", "", SKILL_NAMES[sk]); o.value = sk; skillSel.appendChild(o);
+      });
+      skillSel.value = String(SK_HMP);
+      try {
+        var saved = JSON.parse(window.localStorage.getItem("doom-speed-run:free-play") || "null");
+        if (saved) { mapSel.value = saved.map; skillSel.value = saved.skill; nomoBox.checked = !!saved.nomo; }
+      } catch (e) {}
+      document.getElementById("free-start").addEventListener("click", function () {
+        if (!E) { toast("Still loading…"); return; }
+        var map = parseInt(mapSel.value, 10), skill = parseInt(skillSel.value, 10);
+        try { window.localStorage.setItem("doom-speed-run:free-play", JSON.stringify({ map: map, skill: skill, nomo: nomoBox.checked })); } catch (e) {}
+        cancelCountdown();
+        attempt = null;
+        freePlayPending = true;
+        hideOverlay();
+        renderBar();
+        pollTouchMode();
+        document.getElementById("canvas").focus();
+        var wrap = document.getElementById("canvas-wrap");
+        if (wrap.scrollIntoView) wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+        E.start(skill, 1, map, (nomoBox.checked ? F_NOMONSTERS : 0) | F_KEEP_WIPE);
+      });
+    })();
+
     // Abort whatever's happening (countdown, a run, or a finished one)
     // and go again from the countdown. Bound to the bar's button and to
     // Backspace, which vanilla DOOM only uses inside its menus.
@@ -1257,7 +1313,13 @@
                         (E.get_fastparm() === 1) === !!(want & F_FAST) &&
                         (E.get_respawnparm() === 1) === !!(want & F_RESPAWN) &&
                         lt < 2 * TICRATE;
-          if (matches) {
+          if (freePlayPending) {
+            freePlayPending = false;
+            attempt = { ch: null, state: "free" };
+            cancelCountdown();
+            hideOverlay();
+            renderBar();
+          } else if (matches) {
             beginAttempt(ch);
           } else {
             attempt = { ch: null, state: "free" };
@@ -1315,8 +1377,8 @@
       var ch = attempt && attempt.ch ? attempt.ch : selected;
       restartBtn.hidden = !(attempt && attempt.ch);
       if (attempt && attempt.state === "free") {
-        barTitle.textContent = "Free play — no timer";
-        barSub.textContent = "Pick a challenge to start a timed run";
+        barTitle.textContent = "Free play — E1M" + (E ? E.get_map() : "?");
+        barSub.textContent = (E ? SKILL_NAMES[E.get_skill()] + " · " : "") + "No timer";
         setTimer("-:--.--", "idle");
         setStatusText("Untimed", "");
         return;
