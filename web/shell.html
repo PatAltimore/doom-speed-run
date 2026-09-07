@@ -1,0 +1,1522 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>DOOM — Speed Run</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: dark;
+      /* Retro DOOM palette: charred metal, blood red, sickly nukage green */
+      --bg: #1a1512;
+      --stone: #2b2320;
+      --stone-dark: #120e0c;
+      --panel: #241c19;
+      --panel-border: #5c4a3a;
+      --bevel-light: #7a6248;
+      --bevel-dark: #0c0908;
+      --red: #6b1f14;
+      --red-bright: #b8391f;
+      --green: #3ae85c;
+      --gold: #e8b23a;
+      --gray: #7a7268;
+      --text: #e8ddc8;
+      --text-dim: #a9977c;
+      --white: #f0ead8;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; overscroll-behavior-y: contain; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'VT323', 'Courier New', Consolas, monospace;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .layout { display: flex; width: 100%; align-items: stretch; }
+    .game-area {
+      flex: 1 1 640px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 8px;
+      min-width: 0;
+      min-height: 0;
+      background: var(--stone-dark);
+    }
+    .game-area h1 {
+      font-size: 18px;
+      margin: 0 0 4px;
+      letter-spacing: 0.08em;
+      color: var(--white);
+      text-shadow: 1px 1px 0 var(--bevel-dark);
+    }
+    #status { font-size: 15px; color: var(--text-dim); min-height: 14px; margin-bottom: 2px; }
+    #status:empty { display: none; }
+    #progress { width: 300px; }
+
+    /* ---- Run bar: challenge name, the big timer, live rule status ---- */
+    .run-bar {
+      width: 100%;
+      max-width: 1100px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--panel);
+      border: 2px solid;
+      border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
+      padding: 4px 14px;
+      margin-bottom: 6px;
+    }
+    .run-bar-challenge { display: flex; flex-direction: column; min-width: 0; flex: 1 1 0; }
+    .run-bar-title { font-size: 19px; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .run-bar-sub { font-size: 15px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .run-timer {
+      font-size: 46px;
+      line-height: 1;
+      letter-spacing: 0.04em;
+      color: var(--white);
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 0 10px rgba(240, 234, 216, 0.25);
+      flex: 0 0 auto;
+      min-width: 5.2em;
+      text-align: center;
+    }
+    .run-timer.done { color: var(--green); text-shadow: 0 0 14px rgba(58, 232, 92, 0.45); }
+    .run-timer.fail { color: var(--red-bright); text-shadow: 0 0 14px rgba(184, 57, 31, 0.45); }
+    .run-timer.idle { color: var(--text-dim); text-shadow: none; }
+    .run-bar-status {
+      flex: 1 1 0;
+      text-align: right;
+      font-size: 17px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .run-bar-status.ok { color: var(--green); }
+    .run-bar-status.bad { color: var(--red-bright); }
+    .run-bar-status.gold { color: var(--gold); }
+
+    .canvas-wrap {
+      position: relative;
+      border: 3px solid var(--bevel-light);
+      border-right-color: var(--bevel-dark);
+      border-bottom-color: var(--bevel-dark);
+      background: #000;
+      line-height: 0;
+    }
+    canvas.emscripten {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+      image-rendering: pixelated;
+    }
+
+    /* ---- Overlay on the game canvas: start prompt + run results ---- */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 6, 4, 0.72);
+      z-index: 10;
+      line-height: 1.3;
+      padding: 10px;
+      overflow: auto;
+    }
+    .overlay[hidden] { display: none; }
+    .overlay-card {
+      width: min(460px, 100%);
+      max-height: 100%;
+      overflow: auto;
+      background: var(--panel);
+      border: 2px solid;
+      border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
+      padding: 12px 16px 14px;
+      text-align: center;
+    }
+    .overlay-kicker { font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); }
+    .overlay-kicker.gold { color: var(--gold); }
+    .overlay-title { font-size: 26px; color: var(--white); margin: 2px 0 0; }
+    .overlay-time { font-size: 48px; line-height: 1; color: var(--green); margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+    .overlay-time.fail { color: var(--red-bright); }
+    .overlay-text { font-size: 16px; color: var(--text); margin: 6px 0 4px; line-height: 1.35; }
+    .overlay-meta { font-size: 15px; color: var(--text-dim); margin: 0 0 8px; line-height: 1.4; }
+    .overlay-meta b { color: var(--white); font-weight: normal; }
+    .overlay-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .overlay-actions .btn { flex: 0 1 auto; min-width: 96px; }
+    .overlay-actions .btn-big { font-size: 22px; padding: 10px 26px; flex-basis: 100%; }
+    .overlay-link { display: block; margin-top: 8px; font-size: 15px; color: var(--text-dim); text-decoration: underline; cursor: pointer; background: none; border: none; font-family: inherit; }
+    .overlay-link:hover { color: var(--white); }
+
+    /* ---- Buttons ---- */
+    button.btn {
+      background: var(--red);
+      color: var(--white);
+      border: 2px solid;
+      border-color: var(--red-bright) var(--bevel-dark) var(--bevel-dark) var(--red-bright);
+      padding: 7px 12px;
+      font-family: inherit;
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+    }
+    button.btn:hover { background: var(--red-bright); }
+    button.btn:active { border-color: var(--bevel-dark) var(--red-bright) var(--red-bright) var(--bevel-dark); }
+    button.btn:disabled { opacity: 0.5; cursor: default; }
+    button.btn-gray {
+      background: var(--gray);
+      border-color: #a39c8f var(--bevel-dark) var(--bevel-dark) #a39c8f;
+    }
+    button.btn-gray:hover { background: #8f877a; }
+
+    /* ---- Game controls strip (touch sticks or keyboard legend) ---- */
+    .game-controls {
+      width: 100%;
+      max-width: 1100px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding-top: 10px;
+    }
+    .touch-controls {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      width: 100%;
+      padding: 0 12px 6px;
+    }
+    .touch-controls-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      padding-bottom: 18px; /* room for the sticks' labels, which hang below them */
+    }
+    .key-legend {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 8px 18px;
+      width: 100%;
+      padding: 4px 16px 10px;
+      font-size: 15px;
+      color: var(--text-dim);
+    }
+    .key-legend-group { display: flex; flex-direction: column; gap: 5px; }
+    .key-legend-group span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .key-legend kbd {
+      display: inline-block;
+      min-width: 1.3em;
+      padding: 2px 6px;
+      border: 1px solid var(--bevel-light);
+      border-bottom: 2px solid var(--bevel-dark);
+      border-radius: 4px;
+      background: var(--stone-dark);
+      color: var(--white);
+      font-family: inherit;
+      font-size: 15px;
+      text-align: center;
+    }
+    .control-mode-switch {
+      align-self: center;
+      margin-top: 2px;
+      padding: 5px 10px;
+      background: transparent;
+      border: 1px solid var(--bevel-light);
+      border-radius: 4px;
+      color: var(--red-bright);
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .control-mode-switch:hover { background: rgba(184, 57, 31, 0.12); }
+    /* Auto-detect: coarse primary pointer and no fine pointer anywhere
+       (a touchscreen laptop with a mouse keeps the keyboard legend). The
+       manual override classes below are declared later so they win. */
+    @media (pointer: coarse) and (not (any-pointer: fine)) {
+      .key-legend { display: none; }
+      .touch-controls { display: flex; }
+    }
+    body.force-touch-controls .key-legend { display: none; }
+    body.force-touch-controls .touch-controls { display: flex; }
+    body.force-keyboard-controls .key-legend { display: flex; }
+    body.force-keyboard-controls .touch-controls { display: none; }
+    .touch-group { display: flex; gap: 14px; align-items: center; }
+    /* An author `display: flex` beats the UA `[hidden] { display: none }`
+       rule, so hiding these groups needs an explicit override. */
+    #tc-play-group[hidden], #tc-menu-group[hidden] { display: none; }
+    .touch-joystick {
+      position: relative;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 42%, var(--stone) 0%, var(--stone-dark) 75%);
+      border: 3px solid var(--bevel-dark);
+      box-shadow:
+        inset 0 6px 14px rgba(0, 0, 0, 0.65),
+        inset 0 -3px 6px rgba(122, 98, 72, 0.25),
+        0 3px 6px rgba(0, 0, 0, 0.5);
+      touch-action: none;
+      pointer-events: auto;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .touch-joystick-knob {
+      position: absolute;
+      width: 72px;
+      height: 72px;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 28%, #fdfaf0, var(--white) 45%, #beb290 100%);
+      border: 2px solid var(--bevel-dark);
+      box-shadow: 0 5px 8px rgba(0, 0, 0, 0.55), inset 0 -3px 5px rgba(0, 0, 0, 0.18);
+      pointer-events: none;
+    }
+    /* Turn/fire control: turning is a single axis in the engine, so
+       it's a horizontal pill rather than a full circle. */
+    .touch-joystick-look { width: 100px; height: 56px; border-radius: 28px; }
+    .touch-joystick-knob-look {
+      width: 46px;
+      height: 46px;
+      background: radial-gradient(circle at 35% 28%, var(--red-bright), var(--red) 60%, #2a0c07 100%);
+    }
+    .touch-joystick-label {
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-top: 6px;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    .touch-btn {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 28%, var(--red-bright), var(--red) 60%, #2a0c07 100%);
+      border: 3px solid var(--bevel-dark);
+      color: var(--white);
+      font-family: inherit;
+      font-size: 22px;
+      font-weight: bold;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      box-shadow:
+        0 5px 0 var(--bevel-dark),
+        0 7px 9px rgba(0, 0, 0, 0.5),
+        inset 0 2px 3px rgba(255, 255, 255, 0.3);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      transition: transform 0.05s ease-out, box-shadow 0.05s ease-out;
+    }
+    .touch-btn:active {
+      transform: translateY(4px);
+      box-shadow:
+        0 1px 0 var(--bevel-dark),
+        0 2px 4px rgba(0, 0, 0, 0.4),
+        inset 0 2px 3px rgba(255, 255, 255, 0.15);
+    }
+    .touch-btn-use { font-size: 13px; background: radial-gradient(circle at 35% 28%, #aeae9e, var(--gray) 60%, #45453f 100%); }
+    .touch-btn-stack { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .touch-btn-weapon { font-size: 12px; background: radial-gradient(circle at 35% 28%, #b89a5a, #6b5530 60%, #2e2410 100%); }
+    .touch-btn-small { width: 52px; height: 52px; font-size: 20px; }
+    .touch-btn-back { font-size: 13px; background: radial-gradient(circle at 35% 28%, #aeae9e, var(--gray) 60%, #45453f 100%); }
+    .touch-joystick-look-wrap { position: relative; }
+    /* Floats above the pill's top-right corner without adding height to
+       the row (see .game-controls padding-top for the clearance). */
+    .touch-btn-fire {
+      position: absolute;
+      bottom: 100%;
+      right: 0;
+      margin-bottom: 6px;
+      font-size: 15px;
+      background: radial-gradient(circle at 35% 28%, var(--red-bright), var(--red) 60%, #2a0c07 100%);
+    }
+
+    /* ---- Challenge panel ---- */
+    .run-panel {
+      flex: 0 0 360px;
+      max-width: 100%;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border-left: 3px solid var(--bevel-dark);
+      box-shadow: inset 2px 0 0 var(--bevel-light);
+      padding: 0 14px 14px;
+      overflow-y: auto;
+    }
+    .run-panel h2 {
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--white);
+      background: var(--red);
+      margin: 14px -14px 10px;
+      padding: 6px 14px;
+      border-top: 1px solid var(--red-bright);
+      border-bottom: 2px solid var(--bevel-dark);
+    }
+    .run-panel h2:first-child { margin-top: 0; }
+    .daily-card {
+      background: var(--stone-dark);
+      border: 2px solid;
+      border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
+      padding: 10px 12px 12px;
+    }
+    .daily-date { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+    .challenge-name { font-size: 24px; color: var(--white); line-height: 1.1; margin-top: 2px; }
+    .challenge-mapname { font-size: 15px; color: var(--text-dim); }
+    .cat-tag {
+      display: inline-block;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 1px 7px;
+      border: 1px solid var(--bevel-light);
+      border-radius: 3px;
+      color: var(--white);
+      background: var(--stone);
+      vertical-align: middle;
+    }
+    .cat-tag.nm { border-color: var(--red-bright); color: #ffb3a0; }
+    .cat-tag.nomo { border-color: var(--green); color: #b8f5c4; }
+    .tier-tag {
+      display: inline-block;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0 5px;
+      border-radius: 2px;
+      vertical-align: middle;
+      color: var(--stone-dark);
+    }
+    .tier-beginner { background: var(--green); }
+    .tier-intermediate { background: var(--gold); }
+    .tier-hard { background: var(--red-bright); color: var(--white); }
+    .rules { font-size: 16px; color: var(--text); line-height: 1.35; margin: 8px 0; }
+    .stat-row { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; color: var(--text-dim); margin: 3px 0; }
+    .stat-row b { color: var(--white); font-weight: normal; }
+    .stat-row a { color: var(--text); }
+    .daily-card .btn { width: 100%; margin-top: 10px; font-size: 19px; padding: 9px; }
+    .challenge-list { display: flex; flex-direction: column; gap: 6px; }
+    .challenge-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto auto;
+      column-gap: 10px;
+      align-items: center;
+      background: var(--stone-dark);
+      border: 2px solid;
+      border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
+      padding: 6px 10px;
+    }
+    .challenge-row.today { border-color: var(--gold); }
+    .challenge-row.selected { box-shadow: inset 0 0 0 1px var(--red-bright); }
+    .challenge-row .row-name { font-size: 18px; color: var(--white); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .challenge-row .row-desc { font-size: 14px; color: var(--text); line-height: 1.3; grid-column: 1; margin: 2px 0 1px; }
+    .challenge-row .row-meta { font-size: 14px; color: var(--text-dim); grid-column: 1; }
+    .challenge-row .row-meta b { color: var(--text); font-weight: normal; }
+    .challenge-row .row-meta b.pb { color: var(--green); }
+    .challenge-row .btn { grid-column: 2; grid-row: 1 / span 3; padding: 6px 12px; font-size: 15px; }
+    .today-badge { font-size: 12px; letter-spacing: 0.1em; color: var(--stone-dark); background: var(--gold); padding: 0 5px; border-radius: 2px; }
+    .share-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .share-row .btn { flex: 1 1 30%; font-size: 15px; padding: 7px 6px; }
+    .ack-note { font-size: 15px; color: var(--text-dim); margin-top: 14px; line-height: 1.4; }
+    .ack-note a { color: var(--text); }
+    .toast {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--stone-dark);
+      border: 2px solid;
+      border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
+      color: var(--white);
+      padding: 8px 14px;
+      font-size: 17px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 20;
+    }
+    .toast.show { opacity: 1; }
+
+    /* Mobile portrait: one scrolling column -- game, controls, then panel. */
+    @media (orientation: portrait) and (max-width: 768px) {
+      html, body { height: auto; }
+      body { overflow-y: auto; overflow-x: hidden; }
+      .layout { flex-direction: column; }
+      .game-area { flex: none; width: 100%; }
+      .run-bar { padding: 4px 10px; gap: 8px; }
+      .run-timer { font-size: 36px; min-width: 4.6em; }
+      .run-bar-status { font-size: 14px; }
+      .run-bar-title { font-size: 16px; }
+      .run-bar-sub { display: none; }
+      .run-panel {
+        flex: none;
+        width: 100%;
+        height: auto;
+        overflow-y: visible;
+        border-left: none;
+        border-top: 3px solid var(--bevel-dark);
+        box-shadow: inset 0 2px 0 var(--bevel-light);
+      }
+      /* The canvas is only ~220px tall on a phone -- too short for the
+         results card -- so the overlay becomes a full-screen modal there. */
+      .overlay { position: fixed; background: rgba(10, 6, 4, 0.86); }
+      .overlay-title { font-size: 22px; }
+      .overlay-time { font-size: 40px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="game-area">
+      <h1>DOOM — SPEED RUN</h1>
+      <div id="status">Downloading...</div>
+      <progress id="progress" hidden max="100" value="0"></progress>
+
+      <div class="run-bar" id="run-bar">
+        <div class="run-bar-challenge">
+          <span class="run-bar-title" id="bar-title">Loading…</span>
+          <span class="run-bar-sub" id="bar-sub"></span>
+        </div>
+        <div class="run-timer idle" id="run-timer">0:00.00</div>
+        <div class="run-bar-status" id="bar-status">READY</div>
+      </div>
+
+      <div class="canvas-wrap" id="canvas-wrap">
+        <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1" width="640" height="400"></canvas>
+        <div class="overlay" id="overlay">
+          <div class="overlay-card">
+            <div class="overlay-kicker" id="ov-kicker">Daily challenge</div>
+            <div class="overlay-title" id="ov-title"></div>
+            <div class="overlay-time" id="ov-time" hidden></div>
+            <p class="overlay-text" id="ov-text"></p>
+            <div class="overlay-meta" id="ov-meta"></div>
+            <div class="overlay-actions" id="ov-actions"></div>
+            <button class="overlay-link" id="ov-link" type="button" hidden></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="game-controls" id="game-controls">
+        <div class="touch-controls">
+          <div class="touch-controls-row">
+            <!-- Twin-stick: left stick moves/strafes, right pill turns and
+                 fires on tap (holding it turns without firing); AUTO is a
+                 hold-to-fire button for automatic weapons. -->
+            <div class="touch-joystick" id="tc-move-joystick" aria-label="Move / strafe">
+              <div class="touch-joystick-knob" id="tc-move-joystick-knob"></div>
+              <span class="touch-joystick-label">Move</span>
+            </div>
+            <div class="touch-group touch-group-right" id="tc-play-group">
+              <div class="touch-btn-stack">
+                <button class="touch-btn touch-btn-use" id="tc-use" aria-label="Open / use">USE</button>
+                <button class="touch-btn touch-btn-small touch-btn-weapon" id="tc-weapon" aria-label="Next weapon">WPN</button>
+              </div>
+              <div class="touch-joystick-look-wrap">
+                <button class="touch-btn touch-btn-small touch-btn-fire" id="tc-fire" aria-label="Fire">AUTO</button>
+                <div class="touch-joystick touch-joystick-look" id="tc-look-joystick" aria-label="Turn / fire">
+                  <div class="touch-joystick-knob touch-joystick-knob-look" id="tc-look-joystick-knob"></div>
+                  <span class="touch-joystick-label">Turn / Fire</span>
+                </div>
+              </div>
+            </div>
+            <!-- Shown instead of Use/Fire whenever a DOOM menu is on screen:
+                 menu items are selected by tapping them on the game screen
+                 itself; Back is the one thing a tap can't do. -->
+            <div class="touch-group touch-group-right" id="tc-menu-group" hidden>
+              <button class="touch-btn touch-btn-small touch-btn-back" id="tc-menu-back" aria-label="Back">BACK</button>
+            </div>
+          </div>
+          <button id="switch-to-keyboard-btn" class="control-mode-switch" type="button">Switch to keyboard controls</button>
+        </div>
+        <!-- Real DOOM keyboard bindings (m_controls.c). -->
+        <div class="key-legend">
+          <div class="key-legend-group">
+            <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> Move forward / back</span>
+            <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> Turn</span>
+            <span><kbd>Alt</kbd> + <kbd>&larr;</kbd><kbd>&rarr;</kbd> Strafe</span>
+            <span><kbd>Shift</kbd> (hold) Run</span>
+          </div>
+          <div class="key-legend-group">
+            <span><kbd>Ctrl</kbd> Fire</span>
+            <span><kbd>Space</kbd> Use / open</span>
+            <span><kbd>Tab</kbd> Automap</span>
+            <span><kbd>1</kbd>-<kbd>8</kbd> Weapons</span>
+          </div>
+          <button id="switch-to-touch-btn" class="control-mode-switch" type="button">Switch to touch controls</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="run-panel">
+      <h2>Today's Challenge</h2>
+      <div class="daily-card" id="daily-card"></div>
+
+      <h2>All Challenges</h2>
+      <div class="challenge-list" id="challenge-list"></div>
+
+      <h2>Share Your Times</h2>
+      <div class="share-row" id="share-all-row"></div>
+      <p class="ack-note">
+        Every challenge has a 2:00 limit. Times are in-game time (35 tics/sec), the same clock
+        <a href="https://dsdarchive.com/wads/doom" target="_blank" rel="noopener">DSDA</a> records use;
+        the "record" on each card is the human world record there for that map and category.
+        Best times are saved in this browser only. A new daily challenge is picked at midnight UTC —
+        the same one for everybody.
+      </p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+  (function () {
+    // Everything lives in this closure: the Emscripten glue appended
+    // after this script declares its own globals (run, out, err, ...)
+    // in the same scope, and a top-level `var run` here was silently
+    // replaced by its run() function. Only Module is exposed on window.
+    // ---- Canvas sizing (pure layout; the engine always renders 640x400) ----
+    var GAME_RATIO = 640 / 400;
+    function sizeCanvasWrap() {
+      var wrap = document.getElementById("canvas-wrap");
+      var gameArea = document.querySelector(".game-area");
+      var isPortraitMobile = window.matchMedia("(orientation: portrait) and (max-width: 768px)").matches;
+      var availW = gameArea.clientWidth - 16;
+      var availH;
+      if (isPortraitMobile) {
+        availH = Math.round(window.innerHeight * 0.5);
+      } else {
+        var chrome = document.querySelector(".game-area h1").offsetHeight +
+                     document.getElementById("status").offsetHeight +
+                     document.getElementById("run-bar").offsetHeight +
+                     document.getElementById("game-controls").offsetHeight + 30;
+        availH = window.innerHeight - chrome - 16;
+      }
+      var w = Math.max(availW, 320);
+      var h = w / GAME_RATIO;
+      if (h > availH && availH > 0) {
+        h = Math.max(availH, 200);
+        w = h * GAME_RATIO;
+      }
+      wrap.style.width = Math.floor(w) + "px";
+      wrap.style.height = Math.floor(h) + "px";
+    }
+    sizeCanvasWrap();
+    window.addEventListener("resize", sizeCanvasWrap);
+
+    // ---- Keyboard-legend vs touch-controls manual override ----
+    (function attachControlModeSwitch() {
+      var STORAGE_KEY = "doom-speed-run:control-mode";
+      var toTouchBtn = document.getElementById("switch-to-touch-btn");
+      var toKeyboardBtn = document.getElementById("switch-to-keyboard-btn");
+      function apply(mode) {
+        document.body.classList.toggle("force-touch-controls", mode === "touch");
+        document.body.classList.toggle("force-keyboard-controls", mode === "keyboard");
+        sizeCanvasWrap();
+      }
+      var saved = null;
+      try { saved = window.localStorage.getItem(STORAGE_KEY); } catch (e) {}
+      if (saved === "touch" || saved === "keyboard") apply(saved);
+      toTouchBtn.addEventListener("click", function () {
+        apply("touch");
+        try { window.localStorage.setItem(STORAGE_KEY, "touch"); } catch (e) {}
+      });
+      toKeyboardBtn.addEventListener("click", function () {
+        apply("keyboard");
+        try { window.localStorage.setItem(STORAGE_KEY, "keyboard"); } catch (e) {}
+      });
+    })();
+
+    // =====================================================================
+    // Challenges
+    // =====================================================================
+    // Categories follow DSDA (dsdarchive.com) definitions. `skill` is
+    // DOOM's skill_t (3 = Ultra-Violence, 4 = Nightmare). The rule flags
+    // are what finishAttempt() checks against the engine's own counters.
+    var SK_UV = 3, SK_NM = 4;
+    var CATEGORIES = {
+      "uv-speed": { name: "UV Speed", dsda: "UV Speed", skill: SK_UV,
+        rules: "Reach the exit as fast as you can on Ultra-Violence. Anything goes." },
+      "nm-speed": { name: "NM Speed", dsda: "NM Speed", skill: SK_NM, nightmare: true,
+        rules: "Nightmare! Monsters are fast and come back from the dead. Just reach the exit alive." },
+      "pacifist": { name: "Pacifist", dsda: "Pacifist", skill: SK_UV, pacifist: true,
+        rules: "Reach the exit without hurting a single monster. Shooting barrels near them and telefrags are allowed." },
+      "uv-max":   { name: "UV Max", dsda: "UV Max", skill: SK_UV, allKills: true, allSecrets: true,
+        rules: "Kill every monster and find every secret, then exit. Ultra-Violence." },
+      "tyson":    { name: "Tyson", dsda: "Tyson", skill: SK_UV, allKills: true, tyson: true,
+        rules: "Kill every monster using only your fists, pistol, or chainsaw, then exit. Ultra-Violence." },
+      "nm-100s":  { name: "NM 100S", dsda: "NM 100S", skill: SK_NM, nightmare: true, allSecrets: true,
+        rules: "Nightmare. Find every secret on the map, then exit alive." },
+      "nomo":     { name: "NoMo", dsda: "NoMo", skill: SK_UV, nomonsters: true,
+        rules: "No monsters at all — just you and the map. Learn the route and run it clean." }
+    };
+    var TIERS = {
+      beginner:     { name: "Beginner", cls: "tier-beginner" },
+      intermediate: { name: "Intermediate", cls: "tier-intermediate" },
+      hard:         { name: "Hard", cls: "tier-hard" }
+    };
+    var MAP_NAMES = { 1: "Hangar", 2: "Nuclear Plant", 3: "Toxin Refinery", 4: "Command Control", 9: "Military Base" };
+
+    // Shareware episode 1 only. `wr` is the DSDA world record for the
+    // map/category (fetched from dsdarchive.com's Ultimate Doom table
+    // view; E1 maps are identical between shareware and Ultimate Doom).
+    // Only combinations a mortal can finish inside the 2:00 limit are
+    // listed -- the longer maps' records already run close to a minute.
+    // Listed easiest first. `tier` is a rough difficulty for a casual
+    // player, `desc` a one-line description shown in the list.
+    var CHALLENGES = [
+      { id: "e1m1-nomo", map: 1, cat: "nomo", tier: "beginner", wr: "0:08.66", wrBy: "aconfusedhuman",
+        desc: "Hangar with the monsters switched off. The best place to start: learn the way out of the start room, past the nukage, and through the exit door." },
+      { id: "e1m4-nomo", map: 4, cat: "nomo", tier: "beginner", wr: "0:11.63", wrBy: "j0Y",
+        desc: "Command Control, monsters off. The exit is much closer than it looks — hunt for the short route the record holders use." },
+      { id: "e1m2-nomo", map: 2, cat: "nomo", tier: "beginner", wr: "0:18.94", wrBy: "aconfusedhuman",
+        desc: "Nuclear Plant, monsters off. A longer route through the plant — practice it here before trying it under fire." },
+      { id: "e1m9-nomo", map: 9, cat: "nomo", tier: "beginner", wr: "0:22.66", wrBy: "ChickenLicken",
+        desc: "Military Base, the secret level, with nothing in it but you. Explore a map most players never see." },
+      { id: "e1m1-uv-speed", map: 1, cat: "uv-speed", tier: "intermediate", wr: "0:08.74", wrBy: "aconfusedhuman",
+        desc: "The classic opener. Sprint past the zombies to the exit — you don't have to kill anything." },
+      { id: "e1m1-pacifist", map: 1, cat: "pacifist", tier: "intermediate", wr: "0:08.74", wrBy: "aconfusedhuman",
+        desc: "Same route as UV Speed, but holster the pistol: nothing gets hurt on the way out." },
+      { id: "e1m4-uv-speed", map: 4, cat: "uv-speed", tier: "intermediate", wr: "0:11.97", wrBy: "depr4vity",
+        desc: "Command Control. The record is under 12 seconds, so there's a very short route to the exit if you know where to look." },
+      { id: "e1m4-pacifist", map: 4, cat: "pacifist", tier: "intermediate", wr: "0:11.97", wrBy: "depr4vity",
+        desc: "Command Control's short route, without firing a shot." },
+      { id: "e1m2-uv-speed", map: 2, cat: "uv-speed", tier: "hard", wr: "0:21.94", wrBy: "depr4vity",
+        desc: "Nuclear Plant: a longer run through the plant to the exit, with imps waiting near the start." },
+      { id: "e1m2-pacifist", map: 2, cat: "pacifist", tier: "hard", wr: "0:22.97", wrBy: "depr4vity",
+        desc: "Nuclear Plant without hurting anyone. Dodging the imps by the start is the hard part." },
+      { id: "e1m9-uv-speed", map: 9, cat: "uv-speed", tier: "hard", wr: "0:27.74", wrBy: "Dwaze",
+        desc: "Military Base, the secret level. Cacodemons and a lot of open ground between you and the exit." },
+      { id: "e1m3-uv-speed", map: 3, cat: "uv-speed", tier: "hard", wr: "0:36.89", wrBy: "Jonathan Rimmer", exit: "normal",
+        desc: "Toxin Refinery to the normal exit. A twisty map; you'll want the blue key." },
+      { id: "e1m3s-uv-speed", map: 3, cat: "uv-speed", tier: "hard", wr: "0:41.51", wrBy: "scuffed", exit: "secret", dsdaLevel: "E1M3s", suffix: " (secret exit)",
+        desc: "Toxin Refinery's hidden exit to Military Base. Find the secret exit and take it instead of the normal one." },
+      { id: "e1m1-nm-speed", map: 1, cat: "nm-speed", tier: "hard", wr: "0:08.89", wrBy: "depr4vity",
+        desc: "Hangar on Nightmare: faster monsters that respawn. Keep moving and don't stop to fight." },
+      { id: "e1m1-nm-100s", map: 1, cat: "nm-100s", tier: "hard", wr: "0:16.97", wrBy: "kuckkuck",
+        desc: "Nightmare, plus all three of Hangar's secrets before you leave." },
+      { id: "e1m1-uv-max", map: 1, cat: "uv-max", tier: "hard", wr: "0:24.83", wrBy: "kuckkuck",
+        desc: "All 29 monsters and all 3 secrets in Hangar, then exit. Grab the shotgun early." },
+      { id: "e1m1-tyson", map: 1, cat: "tyson", tier: "hard", wr: "0:42.91", wrBy: "j4rio",
+        desc: "All 29 of Hangar's monsters with fists and pistol only. Bring patience and count your bullets." },
+      { id: "e1m2-nm-speed", map: 2, cat: "nm-speed", tier: "hard", wr: "0:22.60", wrBy: "Dwaze",
+        desc: "Nuclear Plant on Nightmare — the UV Speed route with everything faster and coming back." }
+    ];
+    CHALLENGES.forEach(function (c) {
+      c.level = "E1M" + c.map;
+      c.mapName = MAP_NAMES[c.map] || "";
+      c.title = c.level + (c.suffix || "") + " · " + CATEGORIES[c.cat].name;
+      c.dsdaUrl = "https://dsdarchive.com/wads/doom/leaderboard?category=" +
+        encodeURIComponent(CATEGORIES[c.cat].dsda) + "&level=" + (c.dsdaLevel || c.level);
+    });
+    function challengeById(id) {
+      for (var i = 0; i < CHALLENGES.length; i++) if (CHALLENGES[i].id === id) return CHALLENGES[i];
+      return null;
+    }
+
+    var TICRATE = 35;
+    var TIME_LIMIT_TICS = 120 * TICRATE;
+    function pad2(n) { return (n < 10 ? "0" : "") + n; }
+    // DSDA-style m:ss.hh from game tics (truncated, not rounded: 306
+    // tics is 8.742s and displays as 0:08.74, matching the archive).
+    function fmtTics(tics) {
+      var hund = Math.floor(tics * 100 / TICRATE);
+      var s = Math.floor(hund / 100), h = hund % 100;
+      var m = Math.floor(s / 60); s = s % 60;
+      return m + ":" + pad2(s) + "." + pad2(h);
+    }
+    function parseTimeToSeconds(str) {
+      var m = /^(\d+):(\d+(?:\.\d+)?)$/.exec(str);
+      return m ? parseInt(m[1], 10) * 60 + parseFloat(m[2]) : NaN;
+    }
+
+    // ---- Daily challenge ----
+    // Everyone gets the same one: the pick is a pure function of the UTC
+    // day number since the epoch. Each block of N days plays every
+    // challenge exactly once in an order shuffled by a seeded PRNG, so
+    // consecutive days vary without ever repeating within a cycle.
+    var DAY_MS = 86400000;
+    function utcDayNumber() { return Math.floor(Date.now() / DAY_MS); }
+    function mulberry32(a) {
+      return function () {
+        a |= 0; a = a + 0x6D2B79F5 | 0;
+        var t = Math.imul(a ^ a >>> 15, 1 | a);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+    function dailyChallengeFor(day) {
+      var n = CHALLENGES.length;
+      var cycle = Math.floor(day / n), pos = ((day % n) + n) % n;
+      var order = CHALLENGES.map(function (_, i) { return i; });
+      var rnd = mulberry32(cycle * 7919 + 17);
+      for (var i = n - 1; i > 0; i--) {
+        var j = Math.floor(rnd() * (i + 1));
+        var tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+      }
+      return CHALLENGES[order[pos]];
+    }
+    function dayLabel(day) {
+      return new Date(day * DAY_MS).toLocaleDateString(undefined,
+        { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    }
+    var today = utcDayNumber();
+    var daily = dailyChallengeFor(today);
+
+    // ---- Personal times (localStorage) ----
+    var TIMES_KEY = "doom-speed-run:times";
+    function loadTimes() {
+      try {
+        var raw = window.localStorage.getItem(TIMES_KEY);
+        if (raw) { var d = JSON.parse(raw); if (d && d.v === 1 && d.challenges) return d; }
+      } catch (e) {}
+      return { v: 1, challenges: {} };
+    }
+    function saveTimes(d) {
+      try { window.localStorage.setItem(TIMES_KEY, JSON.stringify(d)); } catch (e) {}
+    }
+    function timesFor(id) { return loadTimes().challenges[id] || null; }
+    function bestFor(id) { var c = timesFor(id); return c && c.best ? c.best.tics : null; }
+    function noteAttempt(id) {
+      var d = loadTimes();
+      var c = d.challenges[id] || (d.challenges[id] = { best: null, runs: [], attempts: 0 });
+      c.attempts = (c.attempts || 0) + 1;
+      saveTimes(d);
+    }
+    // Records a completed, validated run; returns whether it's a new PB.
+    function recordRun(id, tics, day) {
+      var d = loadTimes();
+      var c = d.challenges[id] || (d.challenges[id] = { best: null, runs: [], attempts: 0 });
+      var entry = { tics: tics, at: new Date().toISOString(), day: day };
+      c.runs.push(entry);
+      if (c.runs.length > 50) c.runs = c.runs.slice(-50);
+      var prev = c.best;
+      var isPB = !prev || tics < prev.tics;
+      if (isPB) c.best = entry;
+      saveTimes(d);
+      return { isPB: isPB, prevBest: prev ? prev.tics : null };
+    }
+
+    // ---- Deep links: ?c=<challenge id>&t=<friend's time in tics> ----
+    var params = new URLSearchParams(window.location.search);
+    var linkedChallenge = challengeById(params.get("c") || "");
+    var friendTarget = parseInt(params.get("t"), 10);
+    if (!(friendTarget > 0)) friendTarget = null;
+    function shareUrlFor(ch, tics) {
+      return window.location.origin + window.location.pathname + "?c=" + encodeURIComponent(ch.id) + (tics ? "&t=" + tics : "");
+    }
+
+    // The challenge the START button and any fresh level load apply to.
+    var selected = linkedChallenge || daily;
+
+    // =====================================================================
+    // Engine bridge
+    // =====================================================================
+    // Bound once the wasm runtime is up (Module.onRuntimeInitialized).
+    // Every export lives in engine/speedrun.c (or one of the patch sites
+    // it documents).
+    var E = null;
+    function bindEngine() {
+      var num = function (n, args) { return Module.cwrap("speedrun_" + n, "number", args || []); };
+      var fn = function (n, args) { return Module.cwrap("speedrun_" + n, null, args || []); };
+      E = {
+        get_episode: num("get_episode"), get_map: num("get_map"), get_skill: num("get_skill"),
+        get_gamestate: num("get_gamestate"), get_kills: num("get_kills"), get_secrets: num("get_secrets"),
+        get_total_kills: num("get_total_kills"), get_total_secrets: num("get_total_secrets"),
+        get_leveltime: num("get_leveltime"), is_dead: num("is_dead"), is_paused: num("is_paused"),
+        get_menuactive: num("get_menuactive"), get_demoplayback: num("get_demoplayback"),
+        get_usergame: num("get_usergame"),
+        get_level_loads: num("get_level_loads"), get_monster_hits: num("get_monster_hits"),
+        get_nontyson_hits: num("get_nontyson_hits"), get_completions: num("get_completions"),
+        get_result: num("get_result", ["number"]),
+        menu_item_count: num("menu_item_count"), menu_base_y: num("menu_base_y"),
+        get_nomonsters: num("get_nomonsters"),
+        toggle_pause: fn("toggle_pause"), start: fn("start", ["number", "number", "number", "number"]),
+        set_move: fn("set_move", ["number", "number"]), set_turn: fn("set_turn", ["number"]),
+        menu_set_item: fn("menu_set_item", ["number"]), switch_weapon: fn("switch_weapon", ["number"])
+      };
+    }
+    // Field numbers mirror speedrun_get_result() in speedrun.c.
+    var RESULT_FIELDS = ["time", "secretExit", "kills", "totalKills", "secrets", "totalSecrets", "items", "monsterHits", "nontysonHits", "skill", "episode", "map", "nomonsters"];
+    function readResult() {
+      var r = {};
+      RESULT_FIELDS.forEach(function (name, i) { r[name] = E.get_result(i); });
+      return r;
+    }
+
+    var GS_LEVEL = 0, GS_INTERMISSION = 1;
+
+    // =====================================================================
+    // Run state machine
+    // =====================================================================
+    // attempt.state: "pending" (start requested, waiting for the level to load)
+    //   -> "running" -> "done" | "dead" | "timeout" | "invalid"; or "free"
+    //   when a level is being played that isn't the selected challenge
+    //   (e.g. the player tapped through the intermission into the next map).
+    var attempt = null;
+    var seen = { loads: null, completions: null };
+    var pendingSince = 0;
+
+    function startChallenge(ch) {
+      if (!E) { toast("Still loading…"); return; }
+      selected = ch;
+      attempt = { ch: ch, state: "pending" };
+      pendingSince = Date.now();
+      hideOverlay();
+      renderBar();
+      renderPanel();
+      document.getElementById("canvas").focus();
+      E.start(CATEGORIES[ch.cat].skill, 1, ch.map, CATEGORIES[ch.cat].nomonsters ? 1 : 0);
+    }
+
+    function beginAttempt(ch) {
+      attempt = { ch: ch, state: "running", tics: 0, day: utcDayNumber(),
+              target: (ch === linkedChallenge) ? friendTarget : null };
+      noteAttempt(ch.id);
+      hideOverlay();
+      renderBar();
+    }
+
+    function failAttempt(state, reason) {
+      attempt.state = state;
+      attempt.tics = E.get_leveltime();
+      attempt.reason = reason;
+      renderBar();
+      showOverlay();
+    }
+
+    function finishAttempt() {
+      var ch = attempt.ch, cat = CATEGORIES[ch.cat];
+      var r = readResult();
+      var reason = null;
+      if (r.episode !== 1 || r.map !== ch.map) reason = "That was a different map.";
+      else if (r.skill !== cat.skill) reason = "Wrong skill level for this category.";
+      else if ((r.nomonsters === 1) !== !!cat.nomonsters) reason = cat.nomonsters ? "Monsters were on for a NoMo run." : "Monsters were switched off.";
+      else if (ch.exit === "normal" && r.secretExit) reason = "You took the secret exit — this challenge needs E1M3's normal exit. (There's a separate secret-exit challenge.)";
+      else if (ch.exit === "secret" && !r.secretExit) reason = "You took the normal exit — this challenge needs E1M3's secret exit.";
+      else if (cat.pacifist && r.monsterHits > 0) reason = "You hurt a monster. Pacifist runs can't damage monsters directly.";
+      else if (cat.tyson && r.nontysonHits > 0) reason = "Only fists, pistol, and chainsaw are allowed in a Tyson attempt.";
+      else if (cat.allKills && r.kills < r.totalKills) reason = "Only " + r.kills + " of " + r.totalKills + " kills — " + cat.name + " needs every monster dead before you exit.";
+      else if (cat.allSecrets && r.secrets < r.totalSecrets) reason = "Only " + r.secrets + " of " + r.totalSecrets + " secrets — " + cat.name + " needs every secret found before you exit.";
+      attempt.tics = r.time;
+      attempt.result = r;
+      if (reason) {
+        attempt.state = "invalid";
+        attempt.reason = reason;
+      } else {
+        attempt.state = "done";
+        var rec = recordRun(ch.id, r.time, attempt.day);
+        attempt.isPB = rec.isPB;
+        attempt.prevBest = rec.prevBest;
+      }
+      renderBar();
+      showOverlay();
+      renderPanel();
+    }
+
+    function pollEngine() {
+      window.requestAnimationFrame(pollEngine);
+      if (!E) return;
+      var loads = E.get_level_loads();
+      var comps = E.get_completions();
+      if (seen.loads === null) { seen.loads = loads; seen.completions = comps; }
+
+      var lt = E.get_leveltime();
+
+      // A level just loaded. The attract-mode demo loads levels too
+      // (never usergame), and a saved game restores a nonzero leveltime
+      // -- neither starts an attempt.
+      if (loads !== seen.loads) {
+        seen.loads = loads;
+        var demo = E.get_demoplayback() === 1, user = E.get_usergame() === 1;
+        if (!demo && user) {
+          var ch = (attempt && attempt.state === "pending") ? attempt.ch : selected;
+          var matches = ch && E.get_episode() === 1 && E.get_map() === ch.map &&
+                        E.get_skill() === CATEGORIES[ch.cat].skill &&
+                        (E.get_nomonsters() === 1) === !!CATEGORIES[ch.cat].nomonsters &&
+                        lt < 2 * TICRATE;
+          if (matches) {
+            beginAttempt(ch);
+          } else {
+            attempt = { ch: null, state: "free" };
+            hideOverlay();
+            renderBar();
+          }
+        }
+      }
+
+      if (attempt && attempt.state === "pending" && Date.now() - pendingSince > 4000) {
+        attempt = null; // the engine never loaded the level -- give the player the start prompt back
+        renderBar(); showOverlay();
+      }
+
+      if (comps !== seen.completions) {
+        seen.completions = comps;
+        if (attempt && attempt.state === "running") finishAttempt();
+      }
+
+      if (attempt && attempt.state === "running") {
+        attempt.tics = lt;
+        var cat = CATEGORIES[attempt.ch.cat];
+        if (E.is_dead() === 1) failAttempt("dead", "You died.");
+        else if (lt > TIME_LIMIT_TICS) failAttempt("timeout", "Every challenge has a 2:00 limit.");
+        else if (cat.pacifist && E.get_monster_hits() > 0) failAttempt("invalid", "You hurt a monster. Pacifist runs can't damage monsters directly — barrels and telefrags are the only exceptions.");
+        else if (cat.tyson && E.get_nontyson_hits() > 0) failAttempt("invalid", "Only fists, pistol, and chainsaw are allowed in a Tyson attempt.");
+        else renderBarLive();
+      }
+    }
+    window.requestAnimationFrame(pollEngine);
+
+    // =====================================================================
+    // Rendering: attempt bar
+    // =====================================================================
+    var barTitle = document.getElementById("bar-title");
+    var barSub = document.getElementById("bar-sub");
+    var barTimer = document.getElementById("run-timer");
+    var barStatus = document.getElementById("bar-status");
+    function setStatusText(text, cls) {
+      barStatus.textContent = text;
+      barStatus.className = "run-bar-status" + (cls ? " " + cls : "");
+    }
+    function setTimer(text, cls) {
+      barTimer.textContent = text;
+      barTimer.className = "run-timer" + (cls ? " " + cls : "");
+    }
+    function renderBar() {
+      var ch = attempt && attempt.ch ? attempt.ch : selected;
+      if (attempt && attempt.state === "free") {
+        barTitle.textContent = "Free play — no timer";
+        barSub.textContent = "Pick a challenge to start a timed attempt";
+        setTimer("-:--.--", "idle");
+        setStatusText("Untimed", "");
+        return;
+      }
+      barTitle.textContent = ch.title;
+      var subBits = [ch.mapName, "Record " + ch.wr];
+      var best = bestFor(ch.id);
+      if (best !== null) subBits.push("Best " + fmtTics(best));
+      if (attempt && attempt.target) subBits.push("Beat " + fmtTics(attempt.target));
+      barSub.textContent = subBits.join(" · ");
+      if (!attempt) { setTimer("0:00.00", "idle"); setStatusText(E ? "Ready" : "Loading", ""); }
+      else if (attempt.state === "pending") { setTimer("0:00.00", "idle"); setStatusText("Starting…", ""); }
+      else if (attempt.state === "running") { renderBarLive(); }
+      else if (attempt.state === "done") { setTimer(fmtTics(attempt.tics), "done"); setStatusText(attempt.isPB ? "New best!" : "Finished", attempt.isPB ? "gold" : "ok"); }
+      else if (attempt.state === "dead") { setTimer(fmtTics(attempt.tics), "fail"); setStatusText("Dead", "bad"); }
+      else if (attempt.state === "timeout") { setTimer(fmtTics(attempt.tics), "fail"); setStatusText("Time up", "bad"); }
+      else if (attempt.state === "invalid") { setTimer(fmtTics(attempt.tics), "fail"); setStatusText("Invalid", "bad"); }
+    }
+    var lastLiveTics = -1, lastLiveStatus = "";
+    function renderBarLive() {
+      if (attempt.tics !== lastLiveTics) {
+        lastLiveTics = attempt.tics;
+        barTimer.textContent = fmtTics(attempt.tics);
+        barTimer.className = "run-timer" + (attempt.tics > TIME_LIMIT_TICS - 10 * TICRATE ? " fail" : "");
+      }
+      var cat = CATEGORIES[attempt.ch.cat], bits = [], cls = "ok";
+      if (cat.allKills) bits.push("Kills " + E.get_kills() + "/" + E.get_total_kills());
+      if (cat.allSecrets) bits.push("Secrets " + E.get_secrets() + "/" + E.get_total_secrets());
+      if (cat.pacifist) bits.push("Pacifist ✓");
+      if (cat.tyson) bits.push("Tyson ✓");
+      if (!bits.length) bits.push(E.is_paused() === 1 ? "Paused" : "Go!");
+      var text = bits.join(" · ");
+      if (text !== lastLiveStatus) { lastLiveStatus = text; setStatusText(text, cls); }
+    }
+
+    // =====================================================================
+    // Rendering: overlay (start prompt / results)
+    // =====================================================================
+    var overlay = document.getElementById("overlay");
+    var ovKicker = document.getElementById("ov-kicker");
+    var ovTitle = document.getElementById("ov-title");
+    var ovTime = document.getElementById("ov-time");
+    var ovText = document.getElementById("ov-text");
+    var ovMeta = document.getElementById("ov-meta");
+    var ovActions = document.getElementById("ov-actions");
+    var ovLink = document.getElementById("ov-link");
+    function hideOverlay() { overlay.hidden = true; }
+    function el(tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    }
+    function button(label, cls, onClick) {
+      var b = el("button", "btn" + (cls ? " " + cls : ""), label);
+      b.type = "button";
+      b.addEventListener("click", onClick);
+      return b;
+    }
+    function metaLine(label, valueHtml) {
+      var d = el("div");
+      d.innerHTML = label + ": <b>" + valueHtml + "</b>";
+      return d;
+    }
+    function showOverlay() {
+      var ch = attempt && attempt.ch ? attempt.ch : selected;
+      var cat = CATEGORIES[ch.cat];
+      var state = attempt ? attempt.state : "idle";
+      ovActions.innerHTML = "";
+      ovMeta.innerHTML = "";
+      ovTime.hidden = true;
+      ovLink.hidden = true;
+      ovKicker.className = "overlay-kicker";
+      ovTitle.textContent = ch.title + (cat.nightmare ? " ☠" : "");
+
+      if (state === "idle" || state === "free") {
+        var isDaily = ch === daily;
+        if (ch === linkedChallenge && friendTarget) ovKicker.textContent = "A friend challenged you";
+        else ovKicker.textContent = isDaily ? "Daily challenge · " + dayLabel(today) : "Challenge";
+        if (isDaily) ovKicker.classList.add("gold");
+        ovText.textContent = ch.desc + " " + cat.rules;
+        ovMeta.appendChild(metaLine("DSDA record", ch.wr + " by " + ch.wrBy));
+        var best = bestFor(ch.id);
+        ovMeta.appendChild(metaLine("Your best", best !== null ? fmtTics(best) : "—"));
+        if (ch === linkedChallenge && friendTarget) ovMeta.appendChild(metaLine("Time to beat", fmtTics(friendTarget)));
+        ovMeta.appendChild(metaLine("Time limit", "2:00"));
+        var startBtn = button(E ? "Start" : "Loading…", "btn-big", function () { startChallenge(ch); });
+        startBtn.disabled = !E;
+        startBtn.id = "ov-start";
+        ovActions.appendChild(startBtn);
+        if (!isDaily) {
+          ovLink.hidden = false;
+          ovLink.textContent = "Play today's daily instead: " + daily.title;
+          ovLink.onclick = function () { selected = daily; renderAll(); showOverlay(); };
+        }
+      } else if (state === "done") {
+        ovKicker.textContent = attempt.isPB ? "New personal best!" : "Finished";
+        if (attempt.isPB) ovKicker.classList.add("gold");
+        ovTime.hidden = false;
+        ovTime.className = "overlay-time";
+        ovTime.textContent = fmtTics(attempt.tics);
+        var r = attempt.result, bits = [];
+        if (cat.allKills || r.totalKills) bits.push(r.kills + "/" + r.totalKills + " kills");
+        if (r.totalSecrets) bits.push(r.secrets + "/" + r.totalSecrets + " secrets");
+        ovText.textContent = bits.join(" · ");
+        ovMeta.appendChild(metaLine("DSDA record", ch.wr + " by " + ch.wrBy));
+        if (!attempt.isPB && attempt.prevBest !== null) ovMeta.appendChild(metaLine("Your best", fmtTics(attempt.prevBest)));
+        else if (attempt.isPB && attempt.prevBest !== null) ovMeta.appendChild(metaLine("Previous best", fmtTics(attempt.prevBest)));
+        if (attempt.target) ovMeta.appendChild(metaLine(attempt.tics < attempt.target ? "You beat your friend's" : "Your friend's time", fmtTics(attempt.target)));
+        if (attempt.day === today && ch === daily) ovMeta.appendChild(metaLine("Daily challenge", dayLabel(today)));
+        appendShareButtons(ovActions, runShareText(attempt), "My DOOM speed attempt: " + ch.title + " in " + fmtTics(attempt.tics));
+        ovActions.appendChild(button("Run again", "", function () { startChallenge(ch); }));
+        ovActions.appendChild(button("Close", "btn-gray", function () { hideOverlay(); }));
+      } else {
+        ovKicker.textContent = state === "dead" ? "You died" : state === "timeout" ? "Time's up" : "Run not valid";
+        ovTime.hidden = false;
+        ovTime.className = "overlay-time fail";
+        ovTime.textContent = fmtTics(attempt.tics);
+        ovText.textContent = attempt.reason || "";
+        ovActions.appendChild(button("Retry", "btn-big", function () { startChallenge(ch); }));
+        ovActions.appendChild(button("Close", "btn-gray", function () { hideOverlay(); }));
+      }
+      overlay.hidden = false;
+    }
+
+    // =====================================================================
+    // Rendering: side panel
+    // =====================================================================
+    function catTag(ch) {
+      var cat = CATEGORIES[ch.cat];
+      var t = el("span", "cat-tag" + (cat.nightmare ? " nm" : "") + (cat.nomonsters ? " nomo" : ""), cat.name);
+      return t;
+    }
+    function tierTag(ch) {
+      var t = TIERS[ch.tier] || TIERS.hard;
+      return el("span", "tier-tag " + t.cls, t.name);
+    }
+    function renderDailyCard() {
+      var card = document.getElementById("daily-card");
+      card.innerHTML = "";
+      card.appendChild(el("div", "daily-date", dayLabel(today)));
+      var name = el("div", "challenge-name");
+      name.appendChild(document.createTextNode(daily.level + (daily.suffix || "") + " "));
+      name.appendChild(catTag(daily));
+      name.appendChild(tierTag(daily));
+      card.appendChild(name);
+      card.appendChild(el("div", "challenge-mapname", daily.mapName));
+      card.appendChild(el("p", "rules", daily.desc + " " + CATEGORIES[daily.cat].rules));
+      var wr = el("div", "stat-row");
+      wr.innerHTML = "<span>DSDA record</span><a target=\"_blank\" rel=\"noopener\" href=\"" + daily.dsdaUrl + "\">" + daily.wr + " · " + daily.wrBy + "</a>";
+      card.appendChild(wr);
+      var best = bestFor(daily.id), t = timesFor(daily.id);
+      var br = el("div", "stat-row");
+      br.innerHTML = "<span>Your best</span><b>" + (best !== null ? fmtTics(best) : "—") + (t && t.attempts ? " <span style=\"color:var(--text-dim)\">(" + t.attempts + " attempt" + (t.attempts === 1 ? "" : "s") + ")</span>" : "") + "</b>";
+      card.appendChild(br);
+      var btn = button("Start daily challenge", "", function () { startChallenge(daily); });
+      btn.disabled = !E;
+      btn.id = "daily-start";
+      card.appendChild(btn);
+    }
+    function renderChallengeList() {
+      var list = document.getElementById("challenge-list");
+      list.innerHTML = "";
+      CHALLENGES.forEach(function (ch) {
+        var row = el("div", "challenge-row" + (ch === daily ? " today" : "") + (ch === selected ? " selected" : ""));
+        var name = el("div", "row-name");
+        name.appendChild(document.createTextNode(ch.level + (ch.suffix || "")));
+        name.appendChild(catTag(ch));
+        name.appendChild(tierTag(ch));
+        if (ch === daily) name.appendChild(el("span", "today-badge", "TODAY"));
+        row.appendChild(name);
+        row.appendChild(el("div", "row-desc", ch.desc));
+        var best = bestFor(ch.id);
+        var meta = el("div", "row-meta");
+        meta.innerHTML = "Record " + ch.wr + " · Best " + (best !== null ? "<b class=\"pb\">" + fmtTics(best) + "</b>" : "<b>—</b>");
+        row.appendChild(meta);
+        var play = button("Play", "", function () { startChallenge(ch); });
+        play.disabled = !E;
+        row.appendChild(play);
+        list.appendChild(row);
+      });
+    }
+    function renderShareAll() {
+      var row = document.getElementById("share-all-row");
+      row.innerHTML = "";
+      var text = allTimesShareText();
+      if (!text) { row.appendChild(el("span", "row-meta", "Finish a challenge to share your times.")); return; }
+      appendShareButtons(row, text, "My DOOM speed attempt times");
+    }
+    function renderPanel() { renderDailyCard(); renderChallengeList(); renderShareAll(); }
+    function renderAll() { renderBar(); renderPanel(); }
+
+    // Midnight UTC can pass while the page is open.
+    setInterval(function () {
+      var d = utcDayNumber();
+      if (d === today) return;
+      today = d;
+      daily = dailyChallengeFor(today);
+      if (!attempt) selected = linkedChallenge || daily;
+      renderAll();
+      if (!overlay.hidden && (!attempt || attempt.state === "free")) showOverlay();
+    }, 60000);
+
+    // =====================================================================
+    // Sharing (Web Share sheet, SMS, email, clipboard)
+    // =====================================================================
+    function runShareText(r) {
+      var ch = r.ch, lines = [];
+      lines.push("⏱ DOOM Speed Run — " + ch.title + " (" + ch.mapName + ")");
+      lines.push("My time: " + fmtTics(r.tics) + (r.isPB ? " (personal best)" : ""));
+      if (r.day === today && ch === daily) lines.push("Today's daily challenge, " + dayLabel(today));
+      lines.push("DSDA world record: " + ch.wr + " by " + ch.wrBy);
+      lines.push("");
+      lines.push("Think you can beat it? " + shareUrlFor(ch, r.tics));
+      return lines.join("\n");
+    }
+    function allTimesShareText() {
+      var d = loadTimes(), lines = [], any = false;
+      CHALLENGES.forEach(function (ch) {
+        var c = d.challenges[ch.id];
+        if (c && c.best) { any = true; lines.push("• " + ch.title + " — " + fmtTics(c.best.tics)); }
+      });
+      if (!any) return null;
+      lines.unshift("🏃 My DOOM Speed Run best times:");
+      lines.push("");
+      lines.push("Beat them here: " + window.location.origin + window.location.pathname);
+      return lines.join("\n");
+    }
+    function appendShareButtons(container, text, subject) {
+      if (navigator.share) {
+        container.appendChild(button("Share…", "", function () {
+          navigator.share({ title: subject, text: text }).catch(function () {});
+        }));
+      }
+      container.appendChild(button("Text", "", function () {
+        // "sms:?&body=" is the form both iOS and Android accept.
+        window.location.href = "sms:?&body=" + encodeURIComponent(text);
+      }));
+      container.appendChild(button("Email", "", function () {
+        window.location.href = "mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(text);
+      }));
+      container.appendChild(button("Copy", "btn-gray", function () { copyText(text); }));
+    }
+    function copyText(text) {
+      function fallback() {
+        var ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); toast("Copied to clipboard"); } catch (e) { toast("Couldn't copy"); }
+        document.body.removeChild(ta);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { toast("Copied to clipboard"); }, fallback);
+      } else fallback();
+    }
+
+    // ---- Toast ----
+    var toastTimer = null;
+    function toast(msg) {
+      var t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { t.classList.remove("show"); }, 1600);
+    }
+
+    // First paint (engine not up yet: buttons disabled until it is).
+    renderAll();
+    showOverlay();
+
+    // =====================================================================
+    // Synthetic keyboard bridge into the SDL2/Emscripten engine
+    // =====================================================================
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function dispatchKey(type, code, key, keyCode) {
+      var ev = new KeyboardEvent(type, { key: key, code: code, bubbles: true, cancelable: true });
+      try {
+        Object.defineProperty(ev, "keyCode", { get: function () { return keyCode; } });
+        Object.defineProperty(ev, "which", { get: function () { return keyCode; } });
+      } catch (e) {}
+      // Dispatch on the canvas only; it bubbles to the document listener
+      // Emscripten's SDL2 port installs. Dispatching on both delivered
+      // every key twice.
+      document.getElementById("canvas").dispatchEvent(ev);
+    }
+    var KEYS = {
+      Space: ["Space", " ", 32], Control: ["ControlLeft", "Control", 17],
+      Enter: ["Enter", "Enter", 13], Escape: ["Escape", "Escape", 27]
+    };
+    async function tap(name, holdMs) {
+      var k = KEYS[name];
+      dispatchKey("keydown", k[0], k[1], k[2]);
+      await sleep(holdMs || 45);
+      dispatchKey("keyup", k[0], k[1], k[2]);
+    }
+
+    // =====================================================================
+    // Touch: tap on the game screen
+    // =====================================================================
+    // 1. Mid-run: nothing (a stray thumb on the screen mustn't pause a
+    //    timed attempt). Outside an attempt, in gameplay: toggle pause.
+    // 2. An itemized DOOM menu is up: select the item under the tap (via
+    //    speedrun_menu_set_item, m_menu.c) and confirm it with Enter.
+    // 3. The end-of-level stats screen: Fire, which is what WI_Ticker
+    //    polls to advance (Enter does nothing there).
+    // 4. Anything else (title demo, Y/N prompt): Enter.
+    // Touch only -- a mouse click on the canvas already fires the weapon.
+    var DOOM_SCREENHEIGHT = 200;
+    var DOOM_MENU_LINEHEIGHT = 16; // m_menu.c's LINEHEIGHT
+    var knownPaused = false;
+    var knownInGameplay = true;
+    document.getElementById("canvas").addEventListener("pointerup", function (e) {
+      if (e.pointerType !== "touch" || !E) return;
+      if (knownInGameplay) {
+        if (attempt && attempt.state === "running") return;
+        E.toggle_pause();
+        toast(knownPaused ? "Resumed" : "Paused — tap the screen to resume");
+        return;
+      }
+      try {
+        if (E.get_gamestate() === GS_INTERMISSION) { tap("Control"); return; }
+        var itemCount = E.menu_item_count();
+        if (itemCount > 0) {
+          var rect = document.getElementById("canvas").getBoundingClientRect();
+          var gameY = ((e.clientY - rect.top) / rect.height) * DOOM_SCREENHEIGHT;
+          var index = Math.floor((gameY - E.menu_base_y()) / DOOM_MENU_LINEHEIGHT);
+          if (index < 0) index = 0;
+          if (index > itemCount - 1) index = itemCount - 1;
+          E.menu_set_item(index);
+        }
+      } catch (err) {}
+      tap("Enter");
+    });
+    setInterval(function () { if (E) knownPaused = E.is_paused() === 1; }, 800);
+
+    // Which touch button set applies: Fire/Use during real gameplay, Back
+    // whenever a menu, the demo loop, or an intermission is showing.
+    var tcPlayGroup = document.getElementById("tc-play-group");
+    var tcMenuGroup = document.getElementById("tc-menu-group");
+    setInterval(function () {
+      if (!E) return;
+      knownInGameplay = E.get_gamestate() === GS_LEVEL && E.get_menuactive() !== 1 && E.get_demoplayback() !== 1;
+      tcPlayGroup.hidden = !knownInGameplay;
+      tcMenuGroup.hidden = knownInGameplay;
+    }, 500);
+    document.getElementById("tc-menu-back").addEventListener("pointerdown", function (e) { e.preventDefault(); tap("Escape"); });
+    document.getElementById("tc-weapon").addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      if (E) E.switch_weapon(1);
+    });
+
+    // =====================================================================
+    // Touch: hold buttons and twin sticks
+    // =====================================================================
+    function bindHoldButton(el, keyName) {
+      var active = false, k = KEYS[keyName];
+      function press(e) {
+        e.preventDefault();
+        if (active) return;
+        active = true;
+        try { el.setPointerCapture(e.pointerId); } catch (err) {}
+        document.getElementById("canvas").focus();
+        dispatchKey("keydown", k[0], k[1], k[2]);
+      }
+      function release() {
+        if (!active) return;
+        active = false;
+        dispatchKey("keyup", k[0], k[1], k[2]);
+      }
+      el.addEventListener("pointerdown", press);
+      el.addEventListener("pointerup", release);
+      el.addEventListener("pointercancel", release);
+      el.addEventListener("pointerleave", release);
+    }
+    bindHoldButton(document.getElementById("tc-use"), "Space");
+    bindHoldButton(document.getElementById("tc-fire"), "Control");
+
+    // Deflection is measured from where THIS touch landed, not from the
+    // stick's visual center, so a tap-and-hold reads as zero push and
+    // only deliberate movement away from the touch point moves anything.
+    function setupStick(baseId, knobId, maxDist, deadzone, onMove, onStart, onEnd, xOnly) {
+      var base = document.getElementById(baseId);
+      var knob = document.getElementById(knobId);
+      var pointerId = null, originX = 0, originY = 0;
+      function update(clientX, clientY) {
+        var dx = clientX - originX;
+        var dy = xOnly ? 0 : (clientY - originY);
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        var clamped = Math.min(dist, maxDist);
+        var angle = Math.atan2(dy, dx);
+        var kx = Math.cos(angle) * clamped, ky = Math.sin(angle) * clamped;
+        knob.style.transform = "translate(calc(-50% + " + kx + "px), calc(-50% + " + ky + "px))";
+        if (dist < deadzone) { onMove(0, 0); return; }
+        var pct = clamped / maxDist;
+        onMove(Math.round((kx / clamped) * pct * 100), Math.round((ky / clamped) * pct * 100));
+      }
+      function reset() { knob.style.transform = "translate(-50%, -50%)"; onMove(0, 0); }
+      base.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        pointerId = e.pointerId;
+        originX = e.clientX; originY = e.clientY;
+        try { base.setPointerCapture(e.pointerId); } catch (err) {}
+        document.getElementById("canvas").focus();
+        if (onStart) onStart();
+        update(e.clientX, e.clientY);
+      });
+      window.addEventListener("pointermove", function (e) {
+        if (e.pointerId !== pointerId) return;
+        update(e.clientX, e.clientY);
+      });
+      function endDrag(e) {
+        if (e.pointerId !== pointerId) return;
+        pointerId = null;
+        reset();
+        if (onEnd) onEnd();
+      }
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", endDrag);
+    }
+    // Left stick: proportional move/strafe straight into the engine.
+    setupStick("tc-move-joystick", "tc-move-joystick-knob", 55, 8, function (dx, dy) {
+      if (E) E.set_move(dx, dy);
+    });
+    // Right pill: turn while dragged; a tap (no drag) fires once.
+    var lookStickDragged = false;
+    setupStick("tc-look-joystick", "tc-look-joystick-knob", 27, 6, function (dx) {
+      if (E) E.set_turn(lookStickDragged ? dx : 0);
+    }, function onStart() { lookStickDragged = false; }, null, true);
+    (function setupLookStickTap() {
+      var el = document.getElementById("tc-look-joystick");
+      var TAP_MOVE_THRESHOLD = 16;
+      var pointerId = null, startX = 0;
+      el.addEventListener("pointerdown", function (e) { pointerId = e.pointerId; startX = e.clientX; lookStickDragged = false; });
+      window.addEventListener("pointermove", function (e) {
+        if (e.pointerId !== pointerId) return;
+        if (Math.abs(e.clientX - startX) > TAP_MOVE_THRESHOLD) lookStickDragged = true;
+      });
+      window.addEventListener("pointerup", function (e) {
+        if (e.pointerId !== pointerId) return;
+        pointerId = null;
+        if (!lookStickDragged) tap("Control");
+      });
+    })();
+
+    // =====================================================================
+    // Emscripten module wiring
+    // =====================================================================
+    var statusElement = document.getElementById("status");
+    var progressElement = document.getElementById("progress");
+    var canvasElement = document.getElementById("canvas");
+    canvasElement.addEventListener("webglcontextlost", function (e) {
+      alert("WebGL context lost. You will need to reload the page.");
+      e.preventDefault();
+    }, false);
+
+    var setStatus = function (text) {
+      if (!setStatus.last) setStatus.last = { time: Date.now(), text: "" };
+      if (text === setStatus.last.text) return;
+      var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+      var now = Date.now();
+      if (m && now - setStatus.last.time < 30) return;
+      setStatus.last.time = now;
+      setStatus.last.text = text;
+      if (m) {
+        progressElement.value = parseInt(m[2]) * 100;
+        progressElement.max = parseInt(m[4]) * 100;
+        progressElement.hidden = false;
+      } else {
+        progressElement.value = null;
+        progressElement.max = null;
+        progressElement.hidden = true;
+      }
+      statusElement.textContent = text;
+      sizeCanvasWrap();
+    };
+
+    window.Module = {
+      canvas: canvasElement,
+      setStatus: setStatus,
+      totalDependencies: 0,
+      monitorRunDependencies: function (left) {
+        this.totalDependencies = Math.max(this.totalDependencies, left);
+        setStatus(left ? "Preparing... (" + (this.totalDependencies - left) + "/" + this.totalDependencies + ")" : "");
+      },
+      onRuntimeInitialized: function () {
+        bindEngine();
+        setStatus("");
+        renderAll();
+        if (!overlay.hidden) showOverlay(); // enables the Start button
+      }
+    };
+    setStatus("Downloading...");
+    window.onerror = function () {
+      setStatus("Exception thrown, see JavaScript console");
+    };
+    // Debug handle (browser console): window.speedrun.state()
+    window.speedrun = { state: function () { return { engine: !!E, attempt: attempt, seen: seen, selected: selected && selected.id, daily: daily.id, totalKills: E ? E.get_total_kills() : null, nomonsters: E ? E.get_nomonsters() : null }; } };
+  })();
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
