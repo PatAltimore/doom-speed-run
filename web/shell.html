@@ -1566,6 +1566,7 @@
     function runShareText(r) {
       var ch = r.ch, lines = [];
       lines.push("⏱ DOOM Speed Run — " + ch.title + " (" + ch.mapName + ")");
+      lines.push(ch.desc + " " + CATEGORIES[ch.cat].rules);
       lines.push("My time: " + fmtTics(r.tics) + (r.isPB ? " (personal best)" : ""));
       if (r.day === today && ch === daily) lines.push("Today's daily challenge, " + dayLabel(today));
       if (ch.wr) lines.push("DSDA world record: " + ch.wr + " by " + ch.wrBy);
@@ -1886,7 +1887,7 @@
       setStatus("Exception thrown, see JavaScript console");
     };
     // Debug handle (browser console): window.speedrun.state()
-    window.speedrun = { state: function () { return { engine: !!E, attempt: attempt, seen: seen, selected: selected && selected.id, daily: daily.id, countdown: !countdownEl.hidden, countdownText: countdownNum.textContent, totalKills: E ? E.get_total_kills() : null, nomonsters: E ? E.get_nomonsters() : null, fast: E ? E.get_fastparm() : null, respawn: E ? E.get_respawnparm() : null, runTics: E ? E.get_run_tics() : null, strafeTics: E ? E.get_strafe_tics() : null, damage: E ? E.get_player_damage() : null, count: CHALLENGES.length }; } };
+    window.speedrun = { share: function (id, tics) { return runShareText({ ch: challengeById(id), tics: tics || 0, isPB: false, day: -1 }); }, state: function () { return { engine: !!E, attempt: attempt, seen: seen, selected: selected && selected.id, daily: daily.id, countdown: !countdownEl.hidden, countdownText: countdownNum.textContent, totalKills: E ? E.get_total_kills() : null, nomonsters: E ? E.get_nomonsters() : null, fast: E ? E.get_fastparm() : null, respawn: E ? E.get_respawnparm() : null, runTics: E ? E.get_run_tics() : null, strafeTics: E ? E.get_strafe_tics() : null, damage: E ? E.get_player_damage() : null, count: CHALLENGES.length }; } };
   })();
   </script>
   {{{ SCRIPT }}}
