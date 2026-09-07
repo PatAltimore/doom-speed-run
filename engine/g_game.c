@@ -74,6 +74,8 @@
 void speedrun_apply_touch_controls(int *forward, int *side, short *angleturn); // speedrun.c
 void speedrun_on_level_completed(int secret_exit); // speedrun.c
 int speedrun_nomonsters_requested(void); // speedrun.c
+int speedrun_fast_requested(void);       // speedrun.c
+int speedrun_respawn_requested(void);    // speedrun.c
 #endif
 
 #include "s_sound.h"
@@ -1775,14 +1777,17 @@ void G_DoNewGame (void)
     netgame = false;
     deathmatch = false;
     playeringame[1] = playeringame[2] = playeringame[3] = 0;
-    respawnparm = false;
-    fastparm = false;
-    // --- doom-speed-run patch: NoMo challenges ---
-    // Vanilla always clears -nomonsters for a menu-started game; the
-    // browser build lets a challenge ask for it (see speedrun_start).
+    // --- doom-speed-run patch: NoMo / UV Fast / UV Respawn challenges ---
+    // Vanilla always clears the -nomonsters/-fast/-respawn flags for a
+    // menu-started game (they were command-line switches); the browser
+    // build lets a challenge ask for them (see speedrun_start).
 #ifdef __EMSCRIPTEN__
+    respawnparm = speedrun_respawn_requested() ? true : false;
+    fastparm = speedrun_fast_requested() ? true : false;
     nomonsters = speedrun_nomonsters_requested() ? true : false;
 #else
+    respawnparm = false;
+    fastparm = false;
     nomonsters = false;
 #endif
     consoleplayer = 0;
@@ -1877,21 +1882,33 @@ G_InitNew
     else
 	respawnmonsters = false;
 
-    if (fastparm || (skill == sk_nightmare && gameskill != sk_nightmare) )
+    // --- doom-speed-run patch: fast-monster toggle ---
+    // Vanilla only restores the halved demon state tics when *leaving
+    // Nightmare*, because -fast was a command-line switch that never
+    // changed during a session. Here a UV Fast challenge can be followed
+    // by a plain UV one, so track whether the speed-up is applied and
+    // toggle on the real difference. Same values as vanilla either way.
+    {
+    static boolean fast_applied = false;
+    boolean want_fast = fastparm || skill == sk_nightmare;
+    if (want_fast && !fast_applied)
     {
 	for (i=S_SARG_RUN1 ; i<=S_SARG_PAIN2 ; i++)
 	    states[i].tics >>= 1;
 	mobjinfo[MT_BRUISERSHOT].speed = 20*FRACUNIT;
 	mobjinfo[MT_HEADSHOT].speed = 20*FRACUNIT;
 	mobjinfo[MT_TROOPSHOT].speed = 20*FRACUNIT;
+	fast_applied = true;
     }
-    else if (skill != sk_nightmare && gameskill == sk_nightmare)
+    else if (!want_fast && fast_applied)
     {
 	for (i=S_SARG_RUN1 ; i<=S_SARG_PAIN2 ; i++)
 	    states[i].tics <<= 1;
 	mobjinfo[MT_BRUISERSHOT].speed = 15*FRACUNIT;
 	mobjinfo[MT_HEADSHOT].speed = 10*FRACUNIT;
 	mobjinfo[MT_TROOPSHOT].speed = 10*FRACUNIT;
+	fast_applied = false;
+    }
     }
 
     // force players to be initialized upon first level load

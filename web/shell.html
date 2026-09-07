@@ -161,6 +161,50 @@
     .overlay-link { display: block; margin-top: 8px; font-size: 15px; color: var(--text-dim); text-decoration: underline; cursor: pointer; background: none; border: none; font-family: inherit; }
     .overlay-link:hover { color: var(--white); }
 
+    /* ---- Countdown badge over the canvas ---- */
+    .countdown {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9;
+      pointer-events: none;
+      line-height: 1;
+    }
+    .countdown[hidden] { display: none; }
+    .countdown-kicker {
+      font-size: 18px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--white);
+      text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+      margin-bottom: 10px;
+    }
+    .countdown-num {
+      min-width: 150px;
+      height: 150px;
+      padding: 0 20px;
+      border-radius: 75px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 110px;
+      color: var(--white);
+      background: rgba(10, 6, 4, 0.7);
+      border: 3px solid var(--bevel-light);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.8);
+      text-shadow: 0 0 16px rgba(240, 234, 216, 0.4);
+      animation: countdown-pop 0.9s ease-out;
+    }
+    .countdown-num.go { color: var(--green); font-size: 84px; text-shadow: 0 0 18px rgba(58, 232, 92, 0.6); }
+    @keyframes countdown-pop {
+      0% { transform: scale(1.25); opacity: 0.4; }
+      25% { transform: scale(1); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
     /* ---- Buttons ---- */
     button.btn {
       background: var(--red);
@@ -448,6 +492,34 @@
     .challenge-row .btn { grid-column: 2; grid-row: 1 / span 3; padding: 6px 12px; font-size: 15px; }
     .today-badge { font-size: 12px; letter-spacing: 0.1em; color: var(--stone-dark); background: var(--gold); padding: 0 5px; border-radius: 2px; }
     .share-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .h2-note { float: right; font-size: 13px; letter-spacing: 0.05em; text-transform: none; color: var(--text-dim); margin-top: 2px; }
+    .filter-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .chip {
+      background: var(--stone-dark);
+      color: var(--text-dim);
+      border: 1px solid var(--bevel-light);
+      border-radius: 3px;
+      padding: 3px 9px;
+      font-family: inherit;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+    }
+    .chip:hover { color: var(--white); }
+    .chip.active { background: var(--red); color: var(--white); border-color: var(--red-bright); }
+    .chip-select {
+      background: var(--stone-dark);
+      color: var(--text);
+      border: 1px solid var(--bevel-light);
+      border-radius: 3px;
+      padding: 3px 6px;
+      font-family: inherit;
+      font-size: 14px;
+      margin-left: auto;
+    }
+    .run-restart { flex: 0 0 auto; font-size: 14px; padding: 5px 10px; white-space: nowrap; }
+    .run-restart[hidden] { display: none; }
     .share-row .btn { flex: 1 1 30%; font-size: 15px; padding: 7px 6px; }
     .ack-note { font-size: 15px; color: var(--text-dim); margin-top: 14px; line-height: 1.4; }
     .ack-note a { color: var(--text); }
@@ -480,6 +552,8 @@
       .run-bar-status { font-size: 14px; }
       .run-bar-title { font-size: 16px; }
       .run-bar-sub { display: none; }
+      .run-restart { padding: 4px 8px; font-size: 18px; }
+      .run-restart-label { display: none; }
       .run-panel {
         flex: none;
         width: 100%;
@@ -494,6 +568,9 @@
       .overlay { position: fixed; background: rgba(10, 6, 4, 0.86); }
       .overlay-title { font-size: 22px; }
       .overlay-time { font-size: 40px; }
+      .countdown-num { min-width: 100px; height: 100px; border-radius: 50px; font-size: 72px; }
+      .countdown-num.go { font-size: 56px; }
+      .countdown-kicker { font-size: 15px; }
     }
   </style>
 </head>
@@ -511,10 +588,15 @@
         </div>
         <div class="run-timer idle" id="run-timer">0:00.00</div>
         <div class="run-bar-status" id="bar-status">READY</div>
+        <button class="btn btn-gray run-restart" id="run-restart" type="button" title="Restart this challenge (Backspace)" hidden><span class="run-restart-icon">↺</span><span class="run-restart-label"> Restart</span></button>
       </div>
 
       <div class="canvas-wrap" id="canvas-wrap">
         <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1" width="640" height="400"></canvas>
+        <div class="countdown" id="countdown" hidden>
+          <div class="countdown-kicker" id="countdown-kicker">Get ready</div>
+          <div class="countdown-num" id="countdown-num">3</div>
+        </div>
         <div class="overlay" id="overlay">
           <div class="overlay-card">
             <div class="overlay-kicker" id="ov-kicker">Daily challenge</div>
@@ -573,6 +655,7 @@
             <span><kbd>Space</kbd> Use / open</span>
             <span><kbd>Tab</kbd> Automap</span>
             <span><kbd>1</kbd>-<kbd>8</kbd> Weapons</span>
+            <span><kbd>&#9003;</kbd> Restart challenge</span>
           </div>
           <button id="switch-to-touch-btn" class="control-mode-switch" type="button">Switch to touch controls</button>
         </div>
@@ -583,13 +666,15 @@
       <h2>Today's Challenge</h2>
       <div class="daily-card" id="daily-card"></div>
 
-      <h2>All Challenges</h2>
+      <h2>All Challenges <span class="h2-note" id="challenge-count"></span></h2>
+      <div class="filter-bar" id="challenge-filters"></div>
       <div class="challenge-list" id="challenge-list"></div>
 
       <h2>Share Your Times</h2>
       <div class="share-row" id="share-all-row"></div>
       <p class="ack-note">
-        Every challenge has a 2:00 limit. Times are in-game time (35 tics/sec), the same clock
+        Each challenge's time limit is four times its DSDA record, rounded up to a half minute, between 2:00 and 10:00.
+        Times are in-game time (35 tics/sec), the same clock
         <a href="https://dsdarchive.com/wads/doom" target="_blank" rel="noopener">DSDA</a> records use;
         the "record" on each card is the human world record there for that map and category.
         Best times are saved in this browser only. A new daily challenge is picked at midnight UTC —
@@ -664,89 +749,183 @@
     // Categories follow DSDA (dsdarchive.com) definitions. `skill` is
     // DOOM's skill_t (3 = Ultra-Violence, 4 = Nightmare). The rule flags
     // are what finishAttempt() checks against the engine's own counters.
-    var SK_UV = 3, SK_NM = 4;
-    var CATEGORIES = {
-      "uv-speed": { name: "UV Speed", dsda: "UV Speed", skill: SK_UV,
-        rules: "Reach the exit as fast as you can on Ultra-Violence. Anything goes." },
-      "nm-speed": { name: "NM Speed", dsda: "NM Speed", skill: SK_NM, nightmare: true,
-        rules: "Nightmare! Monsters are fast and come back from the dead. Just reach the exit alive." },
-      "pacifist": { name: "Pacifist", dsda: "Pacifist", skill: SK_UV, pacifist: true,
-        rules: "Reach the exit without hurting a single monster. Shooting barrels near them and telefrags are allowed." },
-      "uv-max":   { name: "UV Max", dsda: "UV Max", skill: SK_UV, allKills: true, allSecrets: true,
-        rules: "Kill every monster and find every secret, then exit. Ultra-Violence." },
-      "tyson":    { name: "Tyson", dsda: "Tyson", skill: SK_UV, allKills: true, tyson: true,
-        rules: "Kill every monster using only your fists, pistol, or chainsaw, then exit. Ultra-Violence." },
-      "nm-100s":  { name: "NM 100S", dsda: "NM 100S", skill: SK_NM, nightmare: true, allSecrets: true,
-        rules: "Nightmare. Find every secret on the map, then exit alive." },
-      "nomo":     { name: "NoMo", dsda: "NoMo", skill: SK_UV, nomonsters: true,
-        rules: "No monsters at all — just you and the map. Learn the route and run it clean." }
-    };
+    var SK_EASY = 0, SK_HMP = 2, SK_UV = 3, SK_NM = 4;
+    var SKILL_NAMES = { 0: "I'm Too Young to Die", 1: "Hey, Not Too Rough", 2: "Hurt Me Plenty", 3: "Ultra-Violence", 4: "Nightmare!" };
+    // Engine start flags (bitmask; mirrors SPEEDRUN_FLAG_* in speedrun.c).
+    var F_NOMONSTERS = 1, F_FAST = 2, F_RESPAWN = 4;
+    var TIER_NAMES = ["beginner", "intermediate", "hard"];
     var TIERS = {
       beginner:     { name: "Beginner", cls: "tier-beginner" },
       intermediate: { name: "Intermediate", cls: "tier-intermediate" },
       hard:         { name: "Hard", cls: "tier-hard" }
     };
-    var MAP_NAMES = { 1: "Hangar", 2: "Nuclear Plant", 3: "Toxin Refinery", 4: "Command Control", 9: "Military Base" };
 
-    // Shareware episode 1 only. `wr` is the DSDA world record for the
-    // map/category (fetched from dsdarchive.com's Ultimate Doom table
-    // view; E1 maps are identical between shareware and Ultimate Doom).
-    // Only combinations a mortal can finish inside the 2:00 limit are
-    // listed -- the longer maps' records already run close to a minute.
-    // Listed easiest first. `tier` is a rough difficulty for a casual
-    // player, `desc` a one-line description shown in the list.
-    var CHALLENGES = [
-      { id: "e1m1-nomo", map: 1, cat: "nomo", tier: "beginner", wr: "0:08.66", wrBy: "aconfusedhuman",
-        desc: "Hangar with the monsters switched off. The best place to start: learn the way out of the start room, past the nukage, and through the exit door." },
-      { id: "e1m4-nomo", map: 4, cat: "nomo", tier: "beginner", wr: "0:11.63", wrBy: "j0Y",
-        desc: "Command Control, monsters off. The exit is much closer than it looks — hunt for the short route the record holders use." },
-      { id: "e1m2-nomo", map: 2, cat: "nomo", tier: "beginner", wr: "0:18.94", wrBy: "aconfusedhuman",
-        desc: "Nuclear Plant, monsters off. A longer route through the plant — practice it here before trying it under fire." },
-      { id: "e1m9-nomo", map: 9, cat: "nomo", tier: "beginner", wr: "0:22.66", wrBy: "ChickenLicken",
-        desc: "Military Base, the secret level, with nothing in it but you. Explore a map most players never see." },
-      { id: "e1m1-uv-speed", map: 1, cat: "uv-speed", tier: "intermediate", wr: "0:08.74", wrBy: "aconfusedhuman",
-        desc: "The classic opener. Sprint past the zombies to the exit — you don't have to kill anything." },
-      { id: "e1m1-pacifist", map: 1, cat: "pacifist", tier: "intermediate", wr: "0:08.74", wrBy: "aconfusedhuman",
-        desc: "Same route as UV Speed, but holster the pistol: nothing gets hurt on the way out." },
-      { id: "e1m4-uv-speed", map: 4, cat: "uv-speed", tier: "intermediate", wr: "0:11.97", wrBy: "depr4vity",
-        desc: "Command Control. The record is under 12 seconds, so there's a very short route to the exit if you know where to look." },
-      { id: "e1m4-pacifist", map: 4, cat: "pacifist", tier: "intermediate", wr: "0:11.97", wrBy: "depr4vity",
-        desc: "Command Control's short route, without firing a shot." },
-      { id: "e1m2-uv-speed", map: 2, cat: "uv-speed", tier: "hard", wr: "0:21.94", wrBy: "depr4vity",
-        desc: "Nuclear Plant: a longer run through the plant to the exit, with imps waiting near the start." },
-      { id: "e1m2-pacifist", map: 2, cat: "pacifist", tier: "hard", wr: "0:22.97", wrBy: "depr4vity",
-        desc: "Nuclear Plant without hurting anyone. Dodging the imps by the start is the hard part." },
-      { id: "e1m9-uv-speed", map: 9, cat: "uv-speed", tier: "hard", wr: "0:27.74", wrBy: "Dwaze",
-        desc: "Military Base, the secret level. Cacodemons and a lot of open ground between you and the exit." },
-      { id: "e1m3-uv-speed", map: 3, cat: "uv-speed", tier: "hard", wr: "0:36.89", wrBy: "Jonathan Rimmer", exit: "normal",
-        desc: "Toxin Refinery to the normal exit. A twisty map; you'll want the blue key." },
-      { id: "e1m3s-uv-speed", map: 3, cat: "uv-speed", tier: "hard", wr: "0:41.51", wrBy: "scuffed", exit: "secret", dsdaLevel: "E1M3s", suffix: " (secret exit)",
-        desc: "Toxin Refinery's hidden exit to Military Base. Find the secret exit and take it instead of the normal one." },
-      { id: "e1m1-nm-speed", map: 1, cat: "nm-speed", tier: "hard", wr: "0:08.89", wrBy: "depr4vity",
-        desc: "Hangar on Nightmare: faster monsters that respawn. Keep moving and don't stop to fight." },
-      { id: "e1m1-nm-100s", map: 1, cat: "nm-100s", tier: "hard", wr: "0:16.97", wrBy: "kuckkuck",
-        desc: "Nightmare, plus all three of Hangar's secrets before you leave." },
-      { id: "e1m1-uv-max", map: 1, cat: "uv-max", tier: "hard", wr: "0:24.83", wrBy: "kuckkuck",
-        desc: "All 29 monsters and all 3 secrets in Hangar, then exit. Grab the shotgun early." },
-      { id: "e1m1-tyson", map: 1, cat: "tyson", tier: "hard", wr: "0:42.91", wrBy: "j4rio",
-        desc: "All 29 of Hangar's monsters with fists and pistol only. Bring patience and count your bullets." },
-      { id: "e1m2-nm-speed", map: 2, cat: "nm-speed", tier: "hard", wr: "0:22.60", wrBy: "Dwaze",
-        desc: "Nuclear Plant on Nightmare — the UV Speed route with everything faster and coming back." }
+    // Categories. DSDA ones carry their archive name in `dsda`; the four
+    // without it are this game's own stepping stones. `tier` is the
+    // base difficulty (0-2), bumped one step on the big maps. Rule flags
+    // are what the run checks use: `speedType` categories only care
+    // about reaching the exit (and get the E1M3 normal/secret split).
+    var CATEGORIES = {
+      "nomo": { name: "NoMo", dsda: "NoMo", skill: SK_UV, flags: F_NOMONSTERS, tier: 0, speedType: true,
+        blurb: "No monsters. Pure route practice.",
+        rules: "No monsters at all — just you and the map. Learn the route and run it clean." },
+      "nomo-100s": { name: "NoMo 100S", dsda: "NoMo 100S", skill: SK_UV, flags: F_NOMONSTERS, allSecrets: true, tier: 0,
+        blurb: "No monsters. Find every secret, then exit.",
+        rules: "No monsters. Find every secret on the map, then exit — the tally screen has to say 100% secrets." },
+      "easy-speed": { name: "Easy Speed", dsda: null, skill: SK_EASY, tier: 0, speedType: true,
+        blurb: "Reach the exit on the easiest skill.",
+        rules: "Reach the exit on I'm Too Young to Die: fewer monsters, half damage, double ammo. Not a DSDA category — a stepping stone toward UV Speed." },
+      "hmp-speed": { name: "HMP Speed", dsda: null, skill: SK_HMP, tier: 1, speedType: true,
+        blurb: "Reach the exit on Hurt Me Plenty.",
+        rules: "Reach the exit on Hurt Me Plenty, the standard difficulty. Not a DSDA category — the last step before UV Speed." },
+      "uv-speed": { name: "UV Speed", dsda: "UV Speed", skill: SK_UV, tier: 1, speedType: true,
+        blurb: "Reach the exit. Anything goes.",
+        rules: "Reach the exit as fast as you can on Ultra-Violence. Anything goes." },
+      "pacifist": { name: "Pacifist", dsda: "Pacifist", skill: SK_UV, pacifist: true, tier: 1, speedType: true,
+        blurb: "Reach the exit without hurting a monster.",
+        rules: "Reach the exit without hurting a single monster. Shooting barrels near them and telefrags are allowed. Ultra-Violence." },
+      "collector": { name: "Collector", dsda: "Collector", skill: SK_UV, allItems: true, tier: 1,
+        blurb: "Pick up every item, then exit.",
+        rules: "Pick up every item on the map — 100% items on the tally screen — then exit. Ultra-Violence." },
+      "uv-100s": { name: "UV 100S", dsda: null, skill: SK_UV, allSecrets: true, tier: 1,
+        blurb: "Find every secret, then exit.",
+        rules: "Find every secret on the map, then exit. Ultra-Violence. Not a DSDA category — NM 100S with the lights on." },
+      "untouched": { name: "Untouched", dsda: null, skill: SK_UV, untouched: true, tier: 2, speedType: true,
+        blurb: "Reach the exit without taking damage.",
+        rules: "Reach the exit without taking a single point of damage — no bullets, no fireballs, no nukage, no barrels. Ultra-Violence. Not a DSDA category." },
+      "stroller": { name: "Stroller", dsda: "Stroller", skill: SK_UV, pacifist: true, stroller: true, tier: 2, speedType: true,
+        blurb: "Pacifist, walking only, no strafing.",
+        rules: "Pacifist rules, and you may only walk: no run key and no strafing (on touch, push the stick less than halfway and never sideways). Turning is fine. Ultra-Violence." },
+      "uv-fast": { name: "UV Fast", dsda: "UV Fast", skill: SK_UV, flags: F_FAST, allKills: true, allSecrets: true, tier: 2,
+        blurb: "Max, with fast monsters.",
+        rules: "-fast: monsters move and attack at Nightmare speed but don't respawn. Kill every monster and find every secret, then exit. Ultra-Violence." },
+      "uv-respawn": { name: "UV Respawn", dsda: "UV Respawn", skill: SK_UV, flags: F_RESPAWN, allKills: true, allSecrets: true, tier: 2,
+        blurb: "Max, with respawning monsters.",
+        rules: "-respawn: dead monsters come back like on Nightmare. Kill every monster (100% on the tally) and find every secret, then exit. Ultra-Violence." },
+      "nm-speed": { name: "NM Speed", dsda: "NM Speed", skill: SK_NM, nightmare: true, tier: 2, speedType: true,
+        blurb: "Nightmare. Reach the exit alive.",
+        rules: "Nightmare! Monsters are fast and come back from the dead. Just reach the exit alive." },
+      "nm-100s": { name: "NM 100S", dsda: "NM 100S", skill: SK_NM, nightmare: true, allSecrets: true, tier: 2,
+        blurb: "Nightmare. Every secret, then exit.",
+        rules: "Nightmare. Find every secret on the map, then exit alive." },
+      "uv-max": { name: "UV Max", dsda: "UV Max", skill: SK_UV, allKills: true, allSecrets: true, tier: 2,
+        blurb: "Every monster, every secret, then exit.",
+        rules: "Kill every monster and find every secret, then exit. Ultra-Violence." },
+      "tyson": { name: "Tyson", dsda: "Tyson", skill: SK_UV, allKills: true, tyson: true, tier: 2,
+        blurb: "Every monster, with fists, pistol, or chainsaw only.",
+        rules: "Kill every monster using only your fists, pistol, or chainsaw, then exit. Ultra-Violence." }
+    };
+
+    // The shareware episode. `size` 2 (and `bump`) push a category up a
+    // tier. E1M8's UV Speed/NM Speed records rely on an out-of-bounds
+    // trick that skips the Barons; a mortal has to kill them, so its
+    // speed-type time limits are based on the UV Max record instead.
+    var MAPS = [
+      { id: "e1m1", map: 1, level: "E1M1", name: "Hangar", size: 0,
+        blurb: "The opener: a short loop from the start room, past the nukage pool, to the exit door. Small, fast, and forgiving." },
+      { id: "e1m2", map: 2, level: "E1M2", name: "Nuclear Plant", size: 1,
+        blurb: "Bigger and twistier than Hangar, with a key on the route and imps waiting near the start." },
+      { id: "e1m3", map: 3, level: "E1M3", name: "Toxin Refinery", size: 1, exitForSpeed: "normal",
+        blurb: "A winding refinery of nukage channels. The normal exit is behind a locked door, so you'll need a key on the way." },
+      { id: "e1m3s", map: 3, level: "E1M3", dsdaLevel: "E1M3s", name: "Toxin Refinery", suffix: " (secret exit)", size: 1, exit: "secret", secretVariant: true,
+        blurb: "Toxin Refinery's hidden exit, tucked behind a secret door, leads to the secret level. Find it and take it instead of the normal exit." },
+      { id: "e1m4", map: 4, level: "E1M4", name: "Command Control", size: 0,
+        blurb: "Compact, with a surprisingly short route to the exit if you know where to look." },
+      { id: "e1m5", map: 5, level: "E1M5", name: "Phobos Lab", size: 2,
+        blurb: "A large, dark lab of lifts and side rooms with keys to collect. The exit is a long way from the start." },
+      { id: "e1m6", map: 6, level: "E1M6", name: "Central Processing", size: 2,
+        blurb: "The biggest map in the episode: a sprawling complex of nukage and corridors, and a lot of monsters." },
+      { id: "e1m7", map: 7, level: "E1M7", name: "Computer Station", size: 2,
+        blurb: "A late-episode map of long corridors, with several keys between you and the exit." },
+      { id: "e1m8", map: 8, level: "E1M8", name: "Phobos Anomaly", size: 1, bump: true, speedBasis: "UV Max",
+        blurb: "The finale. Two Barons of Hell guard the way out, and the exit only opens once they're dead." },
+      { id: "e1m9", map: 9, level: "E1M9", name: "Military Base", size: 1,
+        blurb: "The secret level, normally reached from E1M3's hidden exit: an open base with cacodemons and a lot of ground to cover." }
     ];
-    CHALLENGES.forEach(function (c) {
-      c.level = "E1M" + c.map;
-      c.mapName = MAP_NAMES[c.map] || "";
-      c.title = c.level + (c.suffix || "") + " · " + CATEGORIES[c.cat].name;
-      c.dsdaUrl = "https://dsdarchive.com/wads/doom/leaderboard?category=" +
-        encodeURIComponent(CATEGORIES[c.cat].dsda) + "&level=" + (c.dsdaLevel || c.level);
-    });
+
+    // Human (non-TAS) world records from dsdarchive.com's Ultimate Doom
+    // table view, by DSDA category and level. E1 maps are identical
+    // between shareware and Ultimate Doom. A missing entry means nobody
+    // has recorded that combination, and it isn't offered.
+    var RECORDS = {
+      "UV Speed":   { E1M1: ["0:08.74", "aconfusedhuman"], E1M2: ["0:21.94", "depr4vity"], E1M3: ["0:36.89", "Jonathan Rimmer"], E1M3s: ["0:41.51", "scuffed"], E1M4: ["0:11.97", "depr4vity"], E1M5: ["0:53.80", "Dwaze"], E1M6: ["0:55.17", "Dwaze"], E1M7: ["1:13.49", "mhrz"], E1M8: ["0:17.00", "Zero-Master"], E1M9: ["0:27.74", "Dwaze"] },
+      "NM Speed":   { E1M1: ["0:08.89", "depr4vity"], E1M2: ["0:22.60", "Dwaze"], E1M3: ["0:50.77", "Ks4"], E1M3s: ["0:49.71", "4shockblast"], E1M4: ["0:12.77", "4shockblast"], E1M5: ["1:00.74", "Márk Istenes"], E1M6: ["0:59.54", "Márk Istenes"], E1M7: ["1:29.31", "Márk Istenes"], E1M8: ["0:19.86", "Zero-Master"], E1M9: ["0:33.86", "Brian Martin"] },
+      "UV Max":     { E1M1: ["0:24.83", "kuckkuck"], E1M2: ["1:22.23", "Kinetic"], E1M3: ["2:15.37", "kuckkuck"], E1M4: ["1:25.31", "kuckkuck"], E1M5: ["2:04.17", "Kinetic"], E1M6: ["2:43.17", "kuckkuck"], E1M7: ["2:05.94", "Hi Jango"], E1M8: ["0:57.83", "kuckkuck"], E1M9: ["2:03.77", "kuckkuck"] },
+      "Pacifist":   { E1M1: ["0:08.74", "aconfusedhuman"], E1M2: ["0:22.97", "depr4vity"], E1M3: ["0:50.34", "Adam Williamson"], E1M3s: ["3:40.83", "Xit Vono"], E1M4: ["0:11.97", "depr4vity"], E1M5: ["1:14.40", "Adam Williamson"], E1M6: ["1:44.54", "Vile"], E1M7: ["1:38.40", "SAV88"], E1M8: ["0:21.97", "depr4vity"], E1M9: ["0:29.43", "Dwaze"] },
+      "Tyson":      { E1M1: ["0:42.91", "j4rio"], E1M2: ["2:20.09", "j4rio"], E1M3: ["4:47.89", "j4rio"], E1M4: ["3:27.77", "j4rio"], E1M5: ["3:17.31", "j4rio"], E1M6: ["7:56.83", "j4rio"], E1M7: ["3:57.71", "j4rio"], E1M8: ["1:28.43", "j4rio"], E1M9: ["3:50.77", "j4rio"] },
+      "NM 100S":    { E1M1: ["0:16.97", "kuckkuck"], E1M2: ["0:56.31", "ZELLLOOO"], E1M3: ["1:41.34", "Xit Vono"], E1M4: ["0:21.89", "4shockblast"], E1M5: ["1:18.23", "aconfusedhuman"], E1M6: ["1:16.94", "scuffed"], E1M7: ["1:46.57", "Brian Martin"], E1M8: ["0:19.86", "Zero-Master"], E1M9: ["0:46.63", "Brian Martin"] },
+      "NoMo":       { E1M1: ["0:08.66", "aconfusedhuman"], E1M2: ["0:18.94", "aconfusedhuman"], E1M3: ["0:31.97", "depr4vity"], E1M3s: ["0:26.34", "4shockblast"], E1M4: ["0:11.63", "j0Y"], E1M5: ["0:36.89", "j0Y"], E1M6: ["0:52.83", "depr4vity"], E1M7: ["0:56.69", "mhrz"], E1M8: ["0:16.91", "deeperjungle"], E1M9: ["0:22.66", "ChickenLicken"] },
+      "NoMo 100S":  { E1M1: ["0:17.29", "meneely"], E1M2: ["0:46.66", "depr4vity"], E1M3: ["0:52.69", "depr4vity"], E1M4: ["0:20.94", "depr4vity"], E1M5: ["0:58.94", "Teedre"], E1M6: ["1:20.91", "Orii"], E1M7: ["1:12.97", "Teedre"], E1M8: ["0:29.03", "Teedre"], E1M9: ["0:34.46", "Teedre"] },
+      "UV Fast":    { E1M1: ["0:26.43", "kuckkuck"], E1M2: ["1:28.66", "kuckkuck"], E1M3: ["2:21.69", "Brookie"], E1M4: ["1:34.57", "Orii"], E1M5: ["2:35.69", "Orii"], E1M6: ["3:44.94", "Archy"], E1M7: ["2:27.54", "Brookie"], E1M8: ["0:56.54", "Coincident"], E1M9: ["2:23.03", "Archy"] },
+      "UV Respawn": { E1M1: ["0:29.86", "4shockblast"], E1M2: ["1:36.26", "Yugo"], E1M3: ["2:14.26", "Rayziik"], E1M4: ["1:32.46", "Orii"], E1M5: ["2:15.63", "4shockblast"], E1M6: ["3:12.14", "Rayziik"], E1M7: ["2:00.20", "Hi Jango"], E1M8: ["1:50.66", "Andrea Rovenski"], E1M9: ["1:46.03", "Orii"] },
+      "Stroller":   { E1M1: ["0:18.14", "kuckkuck"], E1M2: ["0:41.51", "Tobby"], E1M3: ["18:38.71", "Vytaan"], E1M4: ["0:38.29", "Tobby"], E1M5: ["24:20.49", "Vytaan"], E1M6: ["8:07.29", "Ancalagon"], E1M7: ["26:51.71", "Ancalagon"], E1M8: ["0:40.26", "Tobby"], E1M9: ["21:03.94", "kuckkuck"] },
+      "Collector":  { E1M1: ["0:13.97", "depr4vity"], E1M2: ["1:09.23", "PBeGood"], E1M3: ["1:03.66", "CWP24"], E1M4: ["0:31.60", "CWP24"], E1M5: ["1:06.40", "CWP24"], E1M6: ["1:39.94", "CWP24"], E1M9: ["1:01.80", "CWP24"] }
+    };
+
+    // Combinations that only work with tricks a casual player can't do
+    // (E1M8's exit needs the Barons dead, so anything monster-free or
+    // pacifist there relies on an out-of-bounds glide), or that DSDA has
+    // no human record for.
+    var EXCLUDE = {
+      e1m8: ["nomo", "nomo-100s", "pacifist", "stroller", "collector", "uv-100s"],
+      e1m7: ["collector"]
+    };
+    // The secret-exit variant of E1M3 only exists for exit-only categories.
+    var SECRET_VARIANT_CATS = ["nomo", "uv-speed", "nm-speed", "easy-speed", "hmp-speed", "untouched"];
+    // A record slower than this means the run is a slog even for the
+    // pros (Stroller on the big maps is 18-27 minutes); not offered.
+    var MAX_RECORD_SECONDS = 210;
+    // Time limit: four times the record, rounded up to a half minute,
+    // never under 2:00 or over 10:00.
+    function limitFor(basisSeconds) {
+      return Math.min(600, Math.max(120, Math.ceil(basisSeconds * 4 / 30) * 30));
+    }
+    function recordFor(dsdaCat, dsdaLevel) {
+      return dsdaCat && RECORDS[dsdaCat] ? RECORDS[dsdaCat][dsdaLevel] || null : null;
+    }
+    function buildChallenges() {
+      var out = [];
+      MAPS.forEach(function (m) {
+        var dsdaLevel = m.dsdaLevel || m.level;
+        Object.keys(CATEGORIES).forEach(function (cid) {
+          var cat = CATEGORIES[cid];
+          if (m.secretVariant && SECRET_VARIANT_CATS.indexOf(cid) < 0) return;
+          if (EXCLUDE[m.id] && EXCLUDE[m.id].indexOf(cid) >= 0) return;
+          var rec = recordFor(cat.dsda, dsdaLevel);
+          if (cat.dsda && !rec) return;
+          if (rec && parseTimeToSeconds(rec[0]) > MAX_RECORD_SECONDS) return;
+          // Time-limit basis: the record itself; a stand-in for the
+          // non-DSDA categories (the level's UV Speed record, or NM 100S
+          // for a secrets category); UV Max for E1M8's speed types.
+          var basis;
+          if (m.speedBasis && cat.speedType) basis = recordFor(m.speedBasis, m.level);
+          else if (rec) basis = rec;
+          else basis = recordFor(cat.allSecrets ? "NM 100S" : "UV Speed", dsdaLevel) || recordFor("UV Speed", m.level);
+          var tier = Math.min(2, cat.tier + ((m.size === 2 || m.bump) ? 1 : 0));
+          out.push({
+            id: m.id + "-" + cid, mapId: m.id, map: m.map, level: m.level, mapName: m.name,
+            suffix: m.suffix || "", cat: cid, tier: TIER_NAMES[tier],
+            wr: rec ? rec[0] : null, wrBy: rec ? rec[1] : null,
+            limitSecs: limitFor(parseTimeToSeconds(basis[0])),
+            exit: m.exit || ((m.exitForSpeed && cat.speedType) ? m.exitForSpeed : null),
+            dsdaLevel: dsdaLevel, desc: m.blurb,
+            title: m.level + (m.suffix || "") + " · " + cat.name,
+            dsdaUrl: cat.dsda
+              ? "https://dsdarchive.com/wads/doom/leaderboard?category=" + encodeURIComponent(cat.dsda) + "&level=" + dsdaLevel
+              : null
+          });
+        });
+      });
+      return out;
+    }
+    var CHALLENGES = buildChallenges();
     function challengeById(id) {
       for (var i = 0; i < CHALLENGES.length; i++) if (CHALLENGES[i].id === id) return CHALLENGES[i];
       return null;
     }
+    function fmtLimit(secs) { return Math.floor(secs / 60) + ":" + pad2(secs % 60); }
 
     var TICRATE = 35;
-    var TIME_LIMIT_TICS = 120 * TICRATE;
     function pad2(n) { return (n < 10 ? "0" : "") + n; }
     // DSDA-style m:ss.hh from game tics (truncated, not rounded: 306
     // tics is 8.742s and displays as 0:08.74, matching the archive).
@@ -861,14 +1040,16 @@
         get_nontyson_hits: num("get_nontyson_hits"), get_completions: num("get_completions"),
         get_result: num("get_result", ["number"]),
         menu_item_count: num("menu_item_count"), menu_base_y: num("menu_base_y"),
-        get_nomonsters: num("get_nomonsters"),
+        get_nomonsters: num("get_nomonsters"), get_fastparm: num("get_fastparm"), get_respawnparm: num("get_respawnparm"),
+        get_total_items: num("get_total_items"), get_items: num("get_items"), get_player_damage: num("get_player_damage"),
+        get_run_tics: num("get_run_tics"), get_strafe_tics: num("get_strafe_tics"),
         toggle_pause: fn("toggle_pause"), start: fn("start", ["number", "number", "number", "number"]),
         set_move: fn("set_move", ["number", "number"]), set_turn: fn("set_turn", ["number"]),
         menu_set_item: fn("menu_set_item", ["number"]), switch_weapon: fn("switch_weapon", ["number"])
       };
     }
     // Field numbers mirror speedrun_get_result() in speedrun.c.
-    var RESULT_FIELDS = ["time", "secretExit", "kills", "totalKills", "secrets", "totalSecrets", "items", "monsterHits", "nontysonHits", "skill", "episode", "map", "nomonsters"];
+    var RESULT_FIELDS = ["time", "secretExit", "kills", "totalKills", "secrets", "totalSecrets", "items", "monsterHits", "nontysonHits", "skill", "episode", "map", "nomonsters", "totalItems", "playerDamage", "runTics", "strafeTics", "fast", "respawn"];
     function readResult() {
       var r = {};
       RESULT_FIELDS.forEach(function (name, i) { r[name] = E.get_result(i); });
@@ -880,7 +1061,8 @@
     // =====================================================================
     // Run state machine
     // =====================================================================
-    // attempt.state: "pending" (start requested, waiting for the level to load)
+    // attempt.state: "countdown" (3-2-1 on screen, engine not started yet)
+    //   -> "pending" (start requested, waiting for the level to load)
     //   -> "running" -> "done" | "dead" | "timeout" | "invalid"; or "free"
     //   when a level is being played that isn't the selected challenge
     //   (e.g. the player tapped through the intermission into the next map).
@@ -888,20 +1070,113 @@
     var seen = { loads: null, completions: null };
     var pendingSince = 0;
 
+    // Picking a challenge from the panel only brings up its start
+    // dialog over the playfield (description, record, big Start button);
+    // the countdown and the actual level start happen from that Start.
+    // Any run in progress is abandoned -- the level keeps playing behind
+    // the dialog, just untimed.
+    function selectChallenge(ch) {
+      selected = ch;
+      cancelCountdown();
+      attempt = null;
+      renderAll();
+      showOverlay();
+      var wrap = document.getElementById("canvas-wrap");
+      if (wrap.scrollIntoView) wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
     function startChallenge(ch) {
       if (!E) { toast("Still loading…"); return; }
       selected = ch;
-      attempt = { ch: ch, state: "pending" };
-      pendingSince = Date.now();
+      ensureAudio(); // must be created inside this click, or the browser mutes it
+      attempt = { ch: ch, state: "countdown" };
       hideOverlay();
       renderBar();
       renderPanel();
       document.getElementById("canvas").focus();
-      E.start(CATEGORIES[ch.cat].skill, 1, ch.map, CATEGORIES[ch.cat].nomonsters ? 1 : 0);
+      pollTouchMode(); // swap Back for the sticks/Fire/Use right now, not on the next 500ms poll
+      runCountdown(ch);
     }
 
+    // 3-2-1 with a short beep on each count, then the engine is told to
+    // load the level exactly at zero. The screen melt that normally
+    // precedes a level is skipped for challenge starts (speedrun_start
+    // arms it; see D_Display's patch in d_main.c), so the level's first
+    // tic lands a frame or two after zero. The long "go" tone and the
+    // GO! badge aren't on a timer at all -- they fire on that first tic
+    // (see pollEngine), which is the instant the run timer leaves
+    // 0:00.00, so they can never drift from the clock.
+    var COUNTDOWN_FROM = 3;
+    var countdownTimer = null;
+    var countdownEl = document.getElementById("countdown");
+    var countdownNum = document.getElementById("countdown-num");
+    var countdownKicker = document.getElementById("countdown-kicker");
+    function cancelCountdown() {
+      clearTimeout(countdownTimer);
+      countdownTimer = null;
+      countdownEl.hidden = true;
+    }
+    function showCount(text, cls) {
+      countdownNum.textContent = text;
+      countdownNum.className = "countdown-num" + (cls ? " " + cls : "");
+      // restart the pop animation
+      void countdownNum.offsetWidth;
+      countdownEl.hidden = false;
+    }
+    function runCountdown(ch) {
+      cancelCountdown();
+      var n = COUNTDOWN_FROM;
+      countdownKicker.textContent = "Get ready";
+      function step() {
+        if (!attempt || attempt.ch !== ch || (attempt.state !== "countdown" && attempt.state !== "pending")) { cancelCountdown(); return; }
+        if (n === 0) {
+          // zero: start the level; "GO" comes from the engine's first tic
+          attempt.state = "pending";
+          pendingSince = Date.now();
+          E.start(CATEGORIES[ch.cat].skill, 1, ch.map, CATEGORIES[ch.cat].flags || 0);
+          countdownTimer = null;
+          return;
+        }
+        showCount(String(n));
+        tone(880, 0.12);
+        setStatusText(n + "…", "gold");
+        n--;
+        countdownTimer = setTimeout(step, 1000);
+      }
+      step();
+    }
+    function signalGo() {
+      countdownKicker.textContent = "";
+      showCount("GO!", "go");
+      tone(1320, 0.6);
+      countdownTimer = setTimeout(cancelCountdown, 500);
+    }
+
+    // Abort whatever's happening (countdown, a run, or a finished one)
+    // and go again from the countdown. Bound to the bar's button and to
+    // Backspace, which vanilla DOOM only uses inside its menus.
+    function restartChallenge() {
+      var ch = attempt && attempt.ch ? attempt.ch : selected;
+      if (!ch || !E) return;
+      startChallenge(ch);
+    }
+    document.getElementById("run-restart").addEventListener("click", function () { restartChallenge(); });
+    window.addEventListener("keydown", function (e) {
+      if (!E) return;
+      if (e.key === "Backspace") {
+        if (E.get_menuactive() === 1) return;           // let the DOOM menu have it (its Back key)
+        if (!(attempt && attempt.ch)) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        restartChallenge();
+      } else if (e.key === "Enter" && !overlay.hidden) {
+        var startBtn = document.getElementById("ov-start");
+        if (startBtn && !startBtn.disabled) { e.preventDefault(); e.stopImmediatePropagation(); startBtn.click(); }
+      }
+    }, true);
+
     function beginAttempt(ch) {
-      attempt = { ch: ch, state: "running", tics: 0, day: utcDayNumber(),
+      attempt = { ch: ch, state: "running", tics: 0, day: utcDayNumber(), goPlayed: false,
+              limitTics: ch.limitSecs * TICRATE,
               target: (ch === linkedChallenge) ? friendTarget : null };
       noteAttempt(ch.id);
       hideOverlay();
@@ -909,6 +1184,7 @@
     }
 
     function failAttempt(state, reason) {
+      cancelCountdown();
       attempt.state = state;
       attempt.tics = E.get_leveltime();
       attempt.reason = reason;
@@ -922,13 +1198,18 @@
       var reason = null;
       if (r.episode !== 1 || r.map !== ch.map) reason = "That was a different map.";
       else if (r.skill !== cat.skill) reason = "Wrong skill level for this category.";
-      else if ((r.nomonsters === 1) !== !!cat.nomonsters) reason = cat.nomonsters ? "Monsters were on for a NoMo run." : "Monsters were switched off.";
+      else if ((r.nomonsters === 1) !== !!((cat.flags || 0) & F_NOMONSTERS)) reason = (cat.flags & F_NOMONSTERS) ? "Monsters were on for a NoMo run." : "Monsters were switched off.";
+      else if ((r.fast === 1) !== !!((cat.flags || 0) & F_FAST)) reason = "Fast-monster setting didn't match this category.";
+      else if ((r.respawn === 1) !== !!((cat.flags || 0) & F_RESPAWN)) reason = "Respawn setting didn't match this category.";
+      else if (cat.untouched && r.playerDamage > 0) reason = "You took damage. Untouched runs have to reach the exit without a scratch.";
+      else if (cat.stroller && (r.runTics > 0 || r.strafeTics > 0)) reason = "Stroller runs are walking only — no run key, no strafing.";
       else if (ch.exit === "normal" && r.secretExit) reason = "You took the secret exit — this challenge needs E1M3's normal exit. (There's a separate secret-exit challenge.)";
       else if (ch.exit === "secret" && !r.secretExit) reason = "You took the normal exit — this challenge needs E1M3's secret exit.";
       else if (cat.pacifist && r.monsterHits > 0) reason = "You hurt a monster. Pacifist runs can't damage monsters directly.";
-      else if (cat.tyson && r.nontysonHits > 0) reason = "Only fists, pistol, and chainsaw are allowed in a Tyson attempt.";
+      else if (cat.tyson && r.nontysonHits > 0) reason = "Only fists, pistol, and chainsaw are allowed in a Tyson run.";
       else if (cat.allKills && r.kills < r.totalKills) reason = "Only " + r.kills + " of " + r.totalKills + " kills — " + cat.name + " needs every monster dead before you exit.";
       else if (cat.allSecrets && r.secrets < r.totalSecrets) reason = "Only " + r.secrets + " of " + r.totalSecrets + " secrets — " + cat.name + " needs every secret found before you exit.";
+      else if (cat.allItems && r.items < r.totalItems) reason = "Only " + r.items + " of " + r.totalItems + " items — Collector needs every item picked up before you exit.";
       attempt.tics = r.time;
       attempt.result = r;
       if (reason) {
@@ -962,14 +1243,18 @@
         var demo = E.get_demoplayback() === 1, user = E.get_usergame() === 1;
         if (!demo && user) {
           var ch = (attempt && attempt.state === "pending") ? attempt.ch : selected;
+          var want = ch ? (CATEGORIES[ch.cat].flags || 0) : 0;
           var matches = ch && E.get_episode() === 1 && E.get_map() === ch.map &&
                         E.get_skill() === CATEGORIES[ch.cat].skill &&
-                        (E.get_nomonsters() === 1) === !!CATEGORIES[ch.cat].nomonsters &&
+                        (E.get_nomonsters() === 1) === !!(want & F_NOMONSTERS) &&
+                        (E.get_fastparm() === 1) === !!(want & F_FAST) &&
+                        (E.get_respawnparm() === 1) === !!(want & F_RESPAWN) &&
                         lt < 2 * TICRATE;
           if (matches) {
             beginAttempt(ch);
           } else {
             attempt = { ch: null, state: "free" };
+            cancelCountdown();
             hideOverlay();
             renderBar();
           }
@@ -978,6 +1263,7 @@
 
       if (attempt && attempt.state === "pending" && Date.now() - pendingSince > 4000) {
         attempt = null; // the engine never loaded the level -- give the player the start prompt back
+        cancelCountdown();
         renderBar(); showOverlay();
       }
 
@@ -988,11 +1274,15 @@
 
       if (attempt && attempt.state === "running") {
         attempt.tics = lt;
+        if (!attempt.goPlayed && lt > 0) { attempt.goPlayed = true; signalGo(); }
         var cat = CATEGORIES[attempt.ch.cat];
         if (E.is_dead() === 1) failAttempt("dead", "You died.");
-        else if (lt > TIME_LIMIT_TICS) failAttempt("timeout", "Every challenge has a 2:00 limit.");
-        else if (cat.pacifist && E.get_monster_hits() > 0) failAttempt("invalid", "You hurt a monster. Pacifist runs can't damage monsters directly — barrels and telefrags are the only exceptions.");
-        else if (cat.tyson && E.get_nontyson_hits() > 0) failAttempt("invalid", "Only fists, pistol, and chainsaw are allowed in a Tyson attempt.");
+        else if (lt > attempt.limitTics) failAttempt("timeout", "This challenge has a " + fmtLimit(attempt.ch.limitSecs) + " limit.");
+        else if (cat.pacifist && E.get_monster_hits() > 0) failAttempt("invalid", "You hurt a monster. " + cat.name + " runs can't damage monsters directly — barrels and telefrags are the only exceptions.");
+        else if (cat.tyson && E.get_nontyson_hits() > 0) failAttempt("invalid", "Only fists, pistol, and chainsaw are allowed in a Tyson run.");
+        else if (cat.untouched && E.get_player_damage() > 0) failAttempt("invalid", "You took damage. Untouched runs have to reach the exit without a scratch.");
+        else if (cat.stroller && E.get_run_tics() > 0) failAttempt("invalid", "You ran. Stroller runs are walking only — no run key, and on touch push the stick less than halfway.");
+        else if (cat.stroller && E.get_strafe_tics() > 0) failAttempt("invalid", "You strafed. Stroller runs allow no sideways movement at all.");
         else renderBarLive();
       }
     }
@@ -1013,23 +1303,25 @@
       barTimer.textContent = text;
       barTimer.className = "run-timer" + (cls ? " " + cls : "");
     }
+    var restartBtn = document.getElementById("run-restart");
     function renderBar() {
       var ch = attempt && attempt.ch ? attempt.ch : selected;
+      restartBtn.hidden = !(attempt && attempt.ch);
       if (attempt && attempt.state === "free") {
         barTitle.textContent = "Free play — no timer";
-        barSub.textContent = "Pick a challenge to start a timed attempt";
+        barSub.textContent = "Pick a challenge to start a timed run";
         setTimer("-:--.--", "idle");
         setStatusText("Untimed", "");
         return;
       }
       barTitle.textContent = ch.title;
-      var subBits = [ch.mapName, "Record " + ch.wr];
+      var subBits = [ch.mapName, ch.wr ? "Record " + ch.wr : "Limit " + fmtLimit(ch.limitSecs)];
       var best = bestFor(ch.id);
       if (best !== null) subBits.push("Best " + fmtTics(best));
       if (attempt && attempt.target) subBits.push("Beat " + fmtTics(attempt.target));
       barSub.textContent = subBits.join(" · ");
       if (!attempt) { setTimer("0:00.00", "idle"); setStatusText(E ? "Ready" : "Loading", ""); }
-      else if (attempt.state === "pending") { setTimer("0:00.00", "idle"); setStatusText("Starting…", ""); }
+      else if (attempt.state === "countdown" || attempt.state === "pending") { setTimer("0:00.00", "idle"); setStatusText("Get ready", "gold"); }
       else if (attempt.state === "running") { renderBarLive(); }
       else if (attempt.state === "done") { setTimer(fmtTics(attempt.tics), "done"); setStatusText(attempt.isPB ? "New best!" : "Finished", attempt.isPB ? "gold" : "ok"); }
       else if (attempt.state === "dead") { setTimer(fmtTics(attempt.tics), "fail"); setStatusText("Dead", "bad"); }
@@ -1041,13 +1333,16 @@
       if (attempt.tics !== lastLiveTics) {
         lastLiveTics = attempt.tics;
         barTimer.textContent = fmtTics(attempt.tics);
-        barTimer.className = "run-timer" + (attempt.tics > TIME_LIMIT_TICS - 10 * TICRATE ? " fail" : "");
+        barTimer.className = "run-timer" + (attempt.tics > attempt.limitTics - 10 * TICRATE ? " fail" : "");
       }
       var cat = CATEGORIES[attempt.ch.cat], bits = [], cls = "ok";
       if (cat.allKills) bits.push("Kills " + E.get_kills() + "/" + E.get_total_kills());
       if (cat.allSecrets) bits.push("Secrets " + E.get_secrets() + "/" + E.get_total_secrets());
-      if (cat.pacifist) bits.push("Pacifist ✓");
+      if (cat.allItems) bits.push("Items " + E.get_items() + "/" + E.get_total_items());
+      if (cat.stroller) bits.push("Stroller ✓");
+      else if (cat.pacifist) bits.push("Pacifist ✓");
       if (cat.tyson) bits.push("Tyson ✓");
+      if (cat.untouched) bits.push("Untouched ✓");
       if (!bits.length) bits.push(E.is_paused() === 1 ? "Paused" : "Go!");
       var text = bits.join(" · ");
       if (text !== lastLiveStatus) { lastLiveStatus = text; setStatusText(text, cls); }
@@ -1099,11 +1394,11 @@
         else ovKicker.textContent = isDaily ? "Daily challenge · " + dayLabel(today) : "Challenge";
         if (isDaily) ovKicker.classList.add("gold");
         ovText.textContent = ch.desc + " " + cat.rules;
-        ovMeta.appendChild(metaLine("DSDA record", ch.wr + " by " + ch.wrBy));
+        ovMeta.appendChild(metaLine("DSDA record", ch.wr ? ch.wr + " by " + ch.wrBy : "— (not a DSDA category)"));
         var best = bestFor(ch.id);
         ovMeta.appendChild(metaLine("Your best", best !== null ? fmtTics(best) : "—"));
         if (ch === linkedChallenge && friendTarget) ovMeta.appendChild(metaLine("Time to beat", fmtTics(friendTarget)));
-        ovMeta.appendChild(metaLine("Time limit", "2:00"));
+        ovMeta.appendChild(metaLine("Skill", SKILL_NAMES[cat.skill] + " · limit " + fmtLimit(ch.limitSecs)));
         var startBtn = button(E ? "Start" : "Loading…", "btn-big", function () { startChallenge(ch); });
         startBtn.disabled = !E;
         startBtn.id = "ov-start";
@@ -1122,8 +1417,9 @@
         var r = attempt.result, bits = [];
         if (cat.allKills || r.totalKills) bits.push(r.kills + "/" + r.totalKills + " kills");
         if (r.totalSecrets) bits.push(r.secrets + "/" + r.totalSecrets + " secrets");
+        if (cat.allItems) bits.push(r.items + "/" + r.totalItems + " items");
         ovText.textContent = bits.join(" · ");
-        ovMeta.appendChild(metaLine("DSDA record", ch.wr + " by " + ch.wrBy));
+        if (ch.wr) ovMeta.appendChild(metaLine("DSDA record", ch.wr + " by " + ch.wrBy));
         if (!attempt.isPB && attempt.prevBest !== null) ovMeta.appendChild(metaLine("Your best", fmtTics(attempt.prevBest)));
         else if (attempt.isPB && attempt.prevBest !== null) ovMeta.appendChild(metaLine("Previous best", fmtTics(attempt.prevBest)));
         if (attempt.target) ovMeta.appendChild(metaLine(attempt.tics < attempt.target ? "You beat your friend's" : "Your friend's time", fmtTics(attempt.target)));
@@ -1167,45 +1463,72 @@
       card.appendChild(el("div", "challenge-mapname", daily.mapName));
       card.appendChild(el("p", "rules", daily.desc + " " + CATEGORIES[daily.cat].rules));
       var wr = el("div", "stat-row");
-      wr.innerHTML = "<span>DSDA record</span><a target=\"_blank\" rel=\"noopener\" href=\"" + daily.dsdaUrl + "\">" + daily.wr + " · " + daily.wrBy + "</a>";
+      wr.innerHTML = "<span>DSDA record</span>" + (daily.wr
+        ? "<a target=\"_blank\" rel=\"noopener\" href=\"" + daily.dsdaUrl + "\">" + daily.wr + " · " + daily.wrBy + "</a>"
+        : "<b>—</b>");
+      var lim = el("div", "stat-row");
+      lim.innerHTML = "<span>Skill · limit</span><b>" + SKILL_NAMES[CATEGORIES[daily.cat].skill] + " · " + fmtLimit(daily.limitSecs) + "</b>";
       card.appendChild(wr);
+      card.appendChild(lim);
       var best = bestFor(daily.id), t = timesFor(daily.id);
       var br = el("div", "stat-row");
       br.innerHTML = "<span>Your best</span><b>" + (best !== null ? fmtTics(best) : "—") + (t && t.attempts ? " <span style=\"color:var(--text-dim)\">(" + t.attempts + " attempt" + (t.attempts === 1 ? "" : "s") + ")</span>" : "") + "</b>";
       card.appendChild(br);
-      var btn = button("Start daily challenge", "", function () { startChallenge(daily); });
-      btn.disabled = !E;
+      var btn = button("Play daily challenge", "", function () { selectChallenge(daily); });
       btn.id = "daily-start";
       card.appendChild(btn);
     }
+    // Filters for the (long) list: a difficulty chip row and a map picker.
+    var listFilter = { tier: "all", map: "all" };
     function renderChallengeList() {
+      var bar = document.getElementById("challenge-filters");
+      bar.innerHTML = "";
+      [["all", "All"], ["beginner", "Beginner"], ["intermediate", "Intermediate"], ["hard", "Hard"]].forEach(function (t) {
+        var chip = el("button", "chip" + (listFilter.tier === t[0] ? " active" : ""), t[1]);
+        chip.type = "button";
+        chip.addEventListener("click", function () { listFilter.tier = t[0]; renderChallengeList(); });
+        bar.appendChild(chip);
+      });
+      var sel = el("select", "chip-select");
+      var anyOpt = el("option", "", "All maps"); anyOpt.value = "all"; sel.appendChild(anyOpt);
+      MAPS.forEach(function (m) {
+        var o = el("option", "", m.level + (m.suffix || "") + " · " + m.name); o.value = m.id; sel.appendChild(o);
+      });
+      sel.value = listFilter.map;
+      sel.addEventListener("change", function () { listFilter.map = sel.value; renderChallengeList(); });
+      bar.appendChild(sel);
+
       var list = document.getElementById("challenge-list");
       list.innerHTML = "";
+      var shown = 0;
       CHALLENGES.forEach(function (ch) {
+        if (listFilter.tier !== "all" && ch.tier !== listFilter.tier) return;
+        if (listFilter.map !== "all" && ch.mapId !== listFilter.map) return;
+        shown++;
         var row = el("div", "challenge-row" + (ch === daily ? " today" : "") + (ch === selected ? " selected" : ""));
         var name = el("div", "row-name");
-        name.appendChild(document.createTextNode(ch.level + (ch.suffix || "")));
+        name.appendChild(document.createTextNode(ch.level + ch.suffix));
         name.appendChild(catTag(ch));
         name.appendChild(tierTag(ch));
         if (ch === daily) name.appendChild(el("span", "today-badge", "TODAY"));
         row.appendChild(name);
-        row.appendChild(el("div", "row-desc", ch.desc));
+        row.appendChild(el("div", "row-desc", ch.mapName + ". " + CATEGORIES[ch.cat].blurb));
         var best = bestFor(ch.id);
         var meta = el("div", "row-meta");
-        meta.innerHTML = "Record " + ch.wr + " · Best " + (best !== null ? "<b class=\"pb\">" + fmtTics(best) + "</b>" : "<b>—</b>");
+        meta.innerHTML = (ch.wr ? "Record " + ch.wr : "Limit " + fmtLimit(ch.limitSecs)) + " · Best " + (best !== null ? "<b class=\"pb\">" + fmtTics(best) + "</b>" : "<b>—</b>");
         row.appendChild(meta);
-        var play = button("Play", "", function () { startChallenge(ch); });
-        play.disabled = !E;
+        var play = button("Play", "", function () { selectChallenge(ch); });
         row.appendChild(play);
         list.appendChild(row);
       });
+      document.getElementById("challenge-count").textContent = shown + " of " + CHALLENGES.length + " challenges";
     }
     function renderShareAll() {
       var row = document.getElementById("share-all-row");
       row.innerHTML = "";
       var text = allTimesShareText();
       if (!text) { row.appendChild(el("span", "row-meta", "Finish a challenge to share your times.")); return; }
-      appendShareButtons(row, text, "My DOOM speed attempt times");
+      appendShareButtons(row, text, "My DOOM speed run times");
     }
     function renderPanel() { renderDailyCard(); renderChallengeList(); renderShareAll(); }
     function renderAll() { renderBar(); renderPanel(); }
@@ -1229,7 +1552,7 @@
       lines.push("⏱ DOOM Speed Run — " + ch.title + " (" + ch.mapName + ")");
       lines.push("My time: " + fmtTics(r.tics) + (r.isPB ? " (personal best)" : ""));
       if (r.day === today && ch === daily) lines.push("Today's daily challenge, " + dayLabel(today));
-      lines.push("DSDA world record: " + ch.wr + " by " + ch.wrBy);
+      if (ch.wr) lines.push("DSDA world record: " + ch.wr + " by " + ch.wrBy);
       lines.push("");
       lines.push("Think you can beat it? " + shareUrlFor(ch, r.tics));
       return lines.join("\n");
@@ -1272,6 +1595,34 @@
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(function () { toast("Copied to clipboard"); }, fallback);
       } else fallback();
+    }
+
+    // ---- Countdown tones (Web Audio; separate from the game's SDL audio) ----
+    // The context is created inside the Start click so autoplay policy
+    // allows it; if audio is unavailable the countdown is simply silent.
+    var audioCtx = null;
+    function ensureAudio() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === "suspended") audioCtx.resume();
+      } catch (e) { audioCtx = null; }
+    }
+    function tone(freq, seconds) {
+      if (!audioCtx) return;
+      try {
+        var t = audioCtx.currentTime;
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = "square";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.18, t + 0.01);
+        gain.gain.setValueAtTime(0.18, t + seconds - 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + seconds);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + seconds + 0.02);
+      } catch (e) {}
     }
 
     // ---- Toast ----
@@ -1332,7 +1683,7 @@
     document.getElementById("canvas").addEventListener("pointerup", function (e) {
       if (e.pointerType !== "touch" || !E) return;
       if (knownInGameplay) {
-        if (attempt && attempt.state === "running") return;
+        if (attempt && (attempt.state === "running" || attempt.state === "countdown" || attempt.state === "pending")) return;
         E.toggle_pause();
         toast(knownPaused ? "Resumed" : "Paused — tap the screen to resume");
         return;
@@ -1355,14 +1706,19 @@
 
     // Which touch button set applies: Fire/Use during real gameplay, Back
     // whenever a menu, the demo loop, or an intermission is showing.
+    // The countdown counts as gameplay here even though the title demo
+    // is still what's on screen: the whole point of the countdown is to
+    // get fingers onto the sticks and Fire/Use before the level starts.
     var tcPlayGroup = document.getElementById("tc-play-group");
     var tcMenuGroup = document.getElementById("tc-menu-group");
-    setInterval(function () {
+    function pollTouchMode() {
       if (!E) return;
-      knownInGameplay = E.get_gamestate() === GS_LEVEL && E.get_menuactive() !== 1 && E.get_demoplayback() !== 1;
+      var preparing = !!(attempt && (attempt.state === "countdown" || attempt.state === "pending"));
+      knownInGameplay = preparing || (E.get_gamestate() === GS_LEVEL && E.get_menuactive() !== 1 && E.get_demoplayback() !== 1);
       tcPlayGroup.hidden = !knownInGameplay;
       tcMenuGroup.hidden = knownInGameplay;
-    }, 500);
+    }
+    setInterval(pollTouchMode, 500);
     document.getElementById("tc-menu-back").addEventListener("pointerdown", function (e) { e.preventDefault(); tap("Escape"); });
     document.getElementById("tc-weapon").addEventListener("pointerdown", function (e) {
       e.preventDefault();
@@ -1514,7 +1870,7 @@
       setStatus("Exception thrown, see JavaScript console");
     };
     // Debug handle (browser console): window.speedrun.state()
-    window.speedrun = { state: function () { return { engine: !!E, attempt: attempt, seen: seen, selected: selected && selected.id, daily: daily.id, totalKills: E ? E.get_total_kills() : null, nomonsters: E ? E.get_nomonsters() : null }; } };
+    window.speedrun = { state: function () { return { engine: !!E, attempt: attempt, seen: seen, selected: selected && selected.id, daily: daily.id, countdown: !countdownEl.hidden, countdownText: countdownNum.textContent, totalKills: E ? E.get_total_kills() : null, nomonsters: E ? E.get_nomonsters() : null, fast: E ? E.get_fastparm() : null, respawn: E ? E.get_respawnparm() : null, runTics: E ? E.get_run_tics() : null, strafeTics: E ? E.get_strafe_tics() : null, damage: E ? E.get_player_damage() : null, count: CHALLENGES.length }; } };
   })();
   </script>
   {{{ SCRIPT }}}

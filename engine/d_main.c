@@ -196,6 +196,19 @@ void D_Display (void)
     }
 
     // save the current screen if about to wipe
+    // --- doom-speed-run patch: no melt on a challenge start ---
+    // The wipe loop below blocks game tics for most of a second, which
+    // would put the run's first tic (and its "GO" tone) well after the
+    // countdown hits zero. speedrun_start arms a one-shot skip so the
+    // level is playable, and its clock running, on the very next frame.
+    // Every other transition (level -> intermission, etc.) still melts.
+#ifdef __EMSCRIPTEN__
+    {
+        int speedrun_consume_skip_wipe(void); // speedrun.c
+        if (gamestate != wipegamestate && speedrun_consume_skip_wipe())
+            wipegamestate = gamestate;
+    }
+#endif
     if (gamestate != wipegamestate)
 		{
 		wipe = true;

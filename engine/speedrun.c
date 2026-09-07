@@ -51,6 +51,7 @@ EMSCRIPTEN_KEEPALIVE int speedrun_get_items(void) { return players[consoleplayer
 EMSCRIPTEN_KEEPALIVE int speedrun_get_secrets(void) { return players[consoleplayer].secretcount; }
 EMSCRIPTEN_KEEPALIVE int speedrun_get_total_kills(void) { return totalkills; }
 EMSCRIPTEN_KEEPALIVE int speedrun_get_total_secrets(void) { return totalsecret; }
+EMSCRIPTEN_KEEPALIVE int speedrun_get_total_items(void) { return totalitems; }
 EMSCRIPTEN_KEEPALIVE int speedrun_get_weapon(void) { return (int)players[consoleplayer].readyweapon; }
 
 // The run clock. leveltime (p_tick.c) counts game tics (35/sec) since
@@ -133,17 +134,46 @@ int speedrun_cheats_enabled(void) { return 0; }
 // its doom-speed-run patch) re-reads it at exactly the point it would
 // otherwise clear it. Reborn-after-death reloads keep the flag as-is,
 // so a retry stays monster-free too.
-static int speedrun_nomonsters_flag;
+//
+// fast / respawn: DSDA's UV Fast and UV Respawn categories are UV Max
+// with the -fast or -respawn switch. Same parking trick as nomonsters;
+// G_InitNew then applies them exactly as the command-line flags would
+// (see the fast-monster toggle patch there).
+#define SPEEDRUN_FLAG_NOMONSTERS 1
+#define SPEEDRUN_FLAG_FAST       2
+#define SPEEDRUN_FLAG_RESPAWN    4
+static int speedrun_nomonsters_flag, speedrun_fast_flag, speedrun_respawn_flag;
 int speedrun_nomonsters_requested(void) { return speedrun_nomonsters_flag; }
+int speedrun_fast_requested(void) { return speedrun_fast_flag; }
+int speedrun_respawn_requested(void) { return speedrun_respawn_flag; }
+EMSCRIPTEN_KEEPALIVE int speedrun_get_fastparm(void) { return fastparm ? 1 : 0; }
+EMSCRIPTEN_KEEPALIVE int speedrun_get_respawnparm(void) { return respawnparm ? 1 : 0; }
+
+// One-shot "don't melt into this level" request, consumed by D_Display
+// (see its doom-speed-run patch) on the first frame whose gamestate
+// differs from the last drawn one -- i.e. the frame the new level
+// first appears. Armed by speedrun_start only, so menu-started games
+// and every later transition keep the classic wipe.
+static int speedrun_skip_wipe_flag;
+int speedrun_consume_skip_wipe(void)
+{
+    int v = speedrun_skip_wipe_flag;
+    speedrun_skip_wipe_flag = 0;
+    return v;
+}
 EMSCRIPTEN_KEEPALIVE int speedrun_get_nomonsters(void) { return nomonsters ? 1 : 0; }
 
-EMSCRIPTEN_KEEPALIVE void speedrun_start(int skill, int episode, int map, int no_monsters)
+// flags: a bitmask of SPEEDRUN_FLAG_* above (mirrored by F_* in shell.html).
+EMSCRIPTEN_KEEPALIVE void speedrun_start(int skill, int episode, int map, int flags)
 {
     extern void M_ClearMenus(void); // m_menu.c
 
     if (skill < (int)sk_baby) skill = (int)sk_baby;
     if (skill > (int)sk_nightmare) skill = (int)sk_nightmare;
-    speedrun_nomonsters_flag = no_monsters ? 1 : 0;
+    speedrun_nomonsters_flag = (flags & SPEEDRUN_FLAG_NOMONSTERS) ? 1 : 0;
+    speedrun_fast_flag = (flags & SPEEDRUN_FLAG_FAST) ? 1 : 0;
+    speedrun_respawn_flag = (flags & SPEEDRUN_FLAG_RESPAWN) ? 1 : 0;
+    speedrun_skip_wipe_flag = 1;
 
     // A menu left open on top of a fresh level would swallow the first
     // keypresses; G_InitNew itself already un-pauses (paused = false +
@@ -171,19 +201,40 @@ EMSCRIPTEN_KEEPALIVE void speedrun_start(int skill, int episode, int map, int no
 // inflictor); hitscan and melee arrive with the player as the inflictor,
 // where readyweapon is still the weapon that just fired. Barrel splash
 // is allowed in Tyson too (same inflictor check).
+//
+// player_damage: every point of damage the player took, from anything
+// (monsters, barrels, their own rockets, nukage floors, crushers) -- the
+// "Untouched" category. Counted from the same P_DamageMobj hook, before
+// armour absorbs any of it, so a single graze counts.
+//
+// run_tics / strafe_tics: tics in which the built ticcmd asked for more
+// than walking speed forward/back, or any sideways movement at all --
+// the "Stroller" category (walk only, no strafing). Counted in
+// speedrun_apply_touch_controls, which G_BuildTiccmd calls after every
+// input source has contributed and before the clamp. Walking speed is
+// forwardmove[0] == 25; the run key, a full touch push, or SR40-style
+// key combos all exceed it.
 static int speedrun_level_loads;   // total P_SetupLevel calls this session
 static int speedrun_monster_hits;
 static int speedrun_nontyson_hits;
+static int speedrun_player_damage;
+static int speedrun_run_tics;
+static int speedrun_strafe_tics;
 
 void speedrun_on_level_start(void)
 {
     speedrun_level_loads++;
     speedrun_monster_hits = 0;
     speedrun_nontyson_hits = 0;
+    speedrun_player_damage = 0;
+    speedrun_run_tics = 0;
+    speedrun_strafe_tics = 0;
 }
 
 void speedrun_on_damage(mobj_t *target, mobj_t *inflictor, mobj_t *source, int damage)
 {
+    if (target->player && target->player == &players[consoleplayer])
+        speedrun_player_damage += damage;       // Untouched: anything that hurts us counts
     if (!source || !source->player)
         return;                                 // monster-on-monster, crushers, nukage: not the player's doing
     if (target == source || target->player)
@@ -217,6 +268,9 @@ void speedrun_on_damage(mobj_t *target, mobj_t *inflictor, mobj_t *source, int d
 EMSCRIPTEN_KEEPALIVE int speedrun_get_level_loads(void) { return speedrun_level_loads; }
 EMSCRIPTEN_KEEPALIVE int speedrun_get_monster_hits(void) { return speedrun_monster_hits; }
 EMSCRIPTEN_KEEPALIVE int speedrun_get_nontyson_hits(void) { return speedrun_nontyson_hits; }
+EMSCRIPTEN_KEEPALIVE int speedrun_get_player_damage(void) { return speedrun_player_damage; }
+EMSCRIPTEN_KEEPALIVE int speedrun_get_run_tics(void) { return speedrun_run_tics; }
+EMSCRIPTEN_KEEPALIVE int speedrun_get_strafe_tics(void) { return speedrun_strafe_tics; }
 
 // -----------------------------------------------------------------------
 // Level completion
@@ -237,7 +291,9 @@ static struct
     int items;
     int monster_hits, nontyson_hits;
     int skill, episode, map;
-    int nomonsters;
+    int nomonsters, fast, respawn;
+    int total_items;
+    int player_damage, run_tics, strafe_tics;
 } speedrun_result;
 
 void speedrun_on_level_completed(int secret_exit)
@@ -256,6 +312,12 @@ void speedrun_on_level_completed(int secret_exit)
     speedrun_result.episode = gameepisode;
     speedrun_result.map = gamemap;
     speedrun_result.nomonsters = nomonsters ? 1 : 0;
+    speedrun_result.fast = fastparm ? 1 : 0;
+    speedrun_result.respawn = respawnparm ? 1 : 0;
+    speedrun_result.total_items = totalitems;
+    speedrun_result.player_damage = speedrun_player_damage;
+    speedrun_result.run_tics = speedrun_run_tics;
+    speedrun_result.strafe_tics = speedrun_strafe_tics;
 }
 
 EMSCRIPTEN_KEEPALIVE int speedrun_get_completions(void) { return speedrun_result.count; }
@@ -279,6 +341,12 @@ EMSCRIPTEN_KEEPALIVE int speedrun_get_result(int field)
         case 10: return speedrun_result.episode;
         case 11: return speedrun_result.map;
         case 12: return speedrun_result.nomonsters;
+        case 13: return speedrun_result.total_items;
+        case 14: return speedrun_result.player_damage;
+        case 15: return speedrun_result.run_tics;
+        case 16: return speedrun_result.strafe_tics;
+        case 17: return speedrun_result.fast;
+        case 18: return speedrun_result.respawn;
         default: return 0;
     }
 }
@@ -327,4 +395,12 @@ void speedrun_apply_touch_controls(int *forward, int *side, short *angleturn)
         // angleturn -- matches the keyboard/mouse turn code above the
         // call site.
         *angleturn -= (short)(speedrun_turn_dx * 768 / 100); // +-100 -> +-768 == 60% of angleturn[1]
+
+    // Stroller bookkeeping (see speedrun_run_tics above), taken after the
+    // touch input has been folded in so a full stick push counts as a run
+    // exactly like the run key does.
+    if (*forward > 25 || *forward < -25)
+        speedrun_run_tics++;
+    if (*side != 0)
+        speedrun_strafe_tics++;
 }
