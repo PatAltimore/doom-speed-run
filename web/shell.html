@@ -1148,6 +1148,11 @@
     function signalGo() {
       countdownKicker.textContent = "";
       showCount("GO!", "go");
+      // Mirror it in the bar's status slot too, and hold it there for a
+      // moment before the live status (kills, secrets, ...) takes over.
+      setStatusText("GO!", "ok");
+      lastLiveStatus = "GO!";
+      statusHoldUntil = Date.now() + 900;
       tone(1320, 0.6);
       countdownTimer = setTimeout(cancelCountdown, 500);
     }
@@ -1179,6 +1184,8 @@
               limitTics: ch.limitSecs * TICRATE,
               target: (ch === linkedChallenge) ? friendTarget : null };
       noteAttempt(ch.id);
+      lastLiveTics = -1;      // force the live bar to repaint for the new run,
+      lastLiveStatus = "";    // even if its first values match the last run's
       hideOverlay();
       renderBar();
     }
@@ -1328,13 +1335,14 @@
       else if (attempt.state === "timeout") { setTimer(fmtTics(attempt.tics), "fail"); setStatusText("Time up", "bad"); }
       else if (attempt.state === "invalid") { setTimer(fmtTics(attempt.tics), "fail"); setStatusText("Invalid", "bad"); }
     }
-    var lastLiveTics = -1, lastLiveStatus = "";
+    var lastLiveTics = -1, lastLiveStatus = "", statusHoldUntil = 0;
     function renderBarLive() {
       if (attempt.tics !== lastLiveTics) {
         lastLiveTics = attempt.tics;
         barTimer.textContent = fmtTics(attempt.tics);
         barTimer.className = "run-timer" + (attempt.tics > attempt.limitTics - 10 * TICRATE ? " fail" : "");
       }
+      if (Date.now() < statusHoldUntil) return; // "GO!" is showing
       var cat = CATEGORIES[attempt.ch.cat], bits = [], cls = "ok";
       if (cat.allKills) bits.push("Kills " + E.get_kills() + "/" + E.get_total_kills());
       if (cat.allSecrets) bits.push("Secrets " + E.get_secrets() + "/" + E.get_total_secrets());
@@ -1403,6 +1411,14 @@
         startBtn.disabled = !E;
         startBtn.id = "ov-start";
         ovActions.appendChild(startBtn);
+        // On a phone this dialog is a full-screen modal sitting on top of
+        // the list, so it needs its own way out to the other challenges.
+        ovActions.appendChild(button("Choose a challenge", "btn-gray", function () {
+          hideOverlay();
+          renderBar();
+          var filters = document.getElementById("challenge-filters");
+          if (filters.scrollIntoView) filters.scrollIntoView({ behavior: "smooth", block: "start" });
+        }));
         if (!isDaily) {
           ovLink.hidden = false;
           ovLink.textContent = "Play today's daily instead: " + daily.title;
