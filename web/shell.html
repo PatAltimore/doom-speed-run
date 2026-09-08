@@ -887,10 +887,16 @@
       e1m7: ["collector"]
     };
     // The secret-exit variant of E1M3 only exists for exit-only categories.
-    var SECRET_VARIANT_CATS = ["nomo", "uv-speed", "nm-speed", "easy-speed", "hmp-speed", "untouched"];
+    var SECRET_VARIANT_CATS = ["nomo", "uv-speed", "nm-speed", "easy-speed", "hmp-speed", "untouched", "pacifist"];
     // A record slower than this means the run is a slog even for the
     // pros (Stroller on the big maps is 18-27 minutes); not offered.
     var MAX_RECORD_SECONDS = 210;
+    // Named exceptions to MAX_RECORD_SECONDS: legitimate, human-recorded
+    // combinations whose record happens to land just past the general
+    // cutoff. Kept as an explicit, narrow allow-list rather than raising
+    // the cutoff itself, which would also pull in several slower
+    // Tyson/UV Fast combinations nobody's reviewed for playability.
+    var RECORD_OVERRIDE_ALLOW = { "e1m3s-pacifist": true };
     // Time limit: four times the record, rounded up to a half minute,
     // never under 2:00 or over 10:00.
     function limitFor(basisSeconds) {
@@ -909,7 +915,7 @@
           if (EXCLUDE[m.id] && EXCLUDE[m.id].indexOf(cid) >= 0) return;
           var rec = recordFor(cat.dsda, dsdaLevel);
           if (cat.dsda && !rec) return;
-          if (rec && parseTimeToSeconds(rec[0]) > MAX_RECORD_SECONDS) return;
+          if (rec && parseTimeToSeconds(rec[0]) > MAX_RECORD_SECONDS && !RECORD_OVERRIDE_ALLOW[m.id + "-" + cid]) return;
           // Time-limit basis: the record itself; a stand-in for the
           // non-DSDA categories (the level's UV Speed record, or NM 100S
           // for a secrets category); UV Max for E1M8's speed types.
