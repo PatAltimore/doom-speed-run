@@ -530,6 +530,44 @@
     .share-row .btn { flex: 1 1 30%; font-size: 15px; padding: 7px 6px; }
     .ack-note { font-size: 15px; color: var(--text-dim); margin-top: 14px; line-height: 1.4; }
     .ack-note a { color: var(--text); }
+
+    /* ---- Race a Friend ---- */
+    .race-panel { display: flex; flex-direction: column; gap: 8px; }
+    .race-choice { display: flex; flex-direction: column; gap: 8px; }
+    .race-join-row { display: flex; gap: 8px; }
+    .race-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      background: var(--stone-dark);
+      color: var(--white);
+      border: 1px solid var(--bevel-light);
+      border-radius: 3px;
+      padding: 7px 8px;
+      font-family: inherit;
+      font-size: 18px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .race-join-row .btn { flex: 0 0 auto; font-size: 15px; padding: 7px 14px; }
+    .race-code-display {
+      text-align: center;
+      padding: 8px;
+      background: var(--stone-dark);
+      border: 1px solid var(--bevel-light);
+      border-radius: 3px;
+    }
+    .race-code-display .race-code-label { font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); }
+    .race-code-display .race-code-value { font-size: 30px; letter-spacing: 0.18em; color: var(--gold); }
+    .race-status { font-size: 15px; color: var(--text-dim); line-height: 1.4; }
+    .race-status.ok { color: var(--green); }
+    .race-status.bad { color: var(--red-bright); }
+    #race-bar[hidden] { display: none; }
+    #race-bar .run-bar-title { color: var(--gold); }
+    /* .share-row (reused for the invite's share buttons) sets its own
+       display: flex, which -- same author-rule-beats-[hidden] gotcha as
+       #run-restart/#tc-play-group elsewhere in this file -- would win
+       over the browser's UA [hidden] rule without this override. */
+    #race-share-row[hidden] { display: none; }
     .toast {
       position: fixed;
       bottom: 16px;
@@ -596,6 +634,18 @@
         <div class="run-timer idle" id="run-timer">0:00.00</div>
         <div class="run-bar-status" id="bar-status">READY</div>
         <button class="btn btn-gray run-restart" id="run-restart" type="button" title="Restart this challenge (Backspace)" hidden><span class="run-restart-icon">↺</span><span class="run-restart-label"> Restart</span></button>
+      </div>
+
+      <!-- Opponent's live progress during a race -- mirrors #run-bar's own
+           markup/classes so the two rows read as one matched pair; only
+           shown while a race is actually connected. -->
+      <div class="run-bar" id="race-bar" hidden>
+        <div class="run-bar-challenge">
+          <span class="run-bar-title">Opponent</span>
+          <span class="run-bar-sub" id="race-bar-sub"></span>
+        </div>
+        <div class="run-timer idle" id="race-bar-timer">0:00.00</div>
+        <div class="run-bar-status" id="race-bar-status">Waiting…</div>
       </div>
 
       <div class="canvas-wrap" id="canvas-wrap">
@@ -676,6 +726,27 @@
       <h2>All Challenges <span class="h2-note" id="challenge-count"></span></h2>
       <div class="filter-bar" id="challenge-filters"></div>
       <div class="challenge-list" id="challenge-list"></div>
+
+      <h2>Race a Friend</h2>
+      <div class="race-panel" id="race-panel">
+        <div id="race-choice">
+          <div class="race-choice">
+            <button class="btn" id="race-host" type="button">Host a Race</button>
+            <div class="race-join-row">
+              <input class="race-input" id="race-join-code" type="text" placeholder="ROOM CODE" maxlength="8" autocapitalize="characters" autocomplete="off">
+              <button class="btn" id="race-join" type="button">Join</button>
+            </div>
+          </div>
+          <p class="row-meta">Pick a challenge above first, then host — your opponent races the same one. First to finish validly wins; your own time still counts either way.</p>
+        </div>
+        <div class="race-code-display" id="race-code-display" hidden>
+          <div class="race-code-label">Room code</div>
+          <div class="race-code-value" id="race-code-value"></div>
+        </div>
+        <div class="race-status" id="race-status" hidden></div>
+        <div class="share-row" id="race-share-row" hidden></div>
+        <button class="btn btn-gray" id="race-leave" type="button" hidden>Leave Race</button>
+      </div>
 
       <h2>Free Play</h2>
       <div class="free-play">
@@ -1034,6 +1105,9 @@
     var linkedChallenge = challengeById(params.get("c") || "");
     var friendTarget = parseInt(params.get("t"), 10);
     if (!(friendTarget > 0)) friendTarget = null;
+    // A race host's invite link -- pre-fills the Join box below (never
+    // auto-joins), same spirit as ?c=/?t= above.
+    var linkedRaceCode = (params.get("racejoin") || "").trim().toUpperCase();
     function shareUrlFor(ch, tics) {
       return window.location.origin + window.location.pathname + "?c=" + encodeURIComponent(ch.id) + (tics ? "&t=" + tics : "");
     }
@@ -1101,13 +1175,19 @@
       selected = ch;
       cancelCountdown();
       attempt = null;
+      if (race) raceLeave("Left the race — still playing solo"); // picking a different challenge abandons it too
       renderAll();
       showOverlay();
       var wrap = document.getElementById("canvas-wrap");
       if (wrap.scrollIntoView) wrap.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
-    function startChallenge(ch) {
+    // raceStartAt (optional): a race's synchronized countdown targets an
+    // absolute Date.now()-space instant instead of a plain 3-2-1 (see
+    // runRaceCountdown) so both racers' engines start together despite
+    // relay latency; every other caller omits it and gets today's plain
+    // countdown, unchanged.
+    function startChallenge(ch, raceStartAt) {
       if (!E) { toast("Still loading…"); return; }
       selected = ch;
       ensureAudio(); // must be created inside this click, or the browser mutes it
@@ -1117,7 +1197,8 @@
       renderPanel();
       document.getElementById("canvas").focus();
       pollTouchMode(); // swap Back for the sticks/Fire/Use right now, not on the next 500ms poll
-      runCountdown(ch);
+      if (raceStartAt) runRaceCountdown(ch, raceStartAt);
+      else runCountdown(ch);
     }
 
     // 3-2-1 with a short beep on each count, then the engine is told to
@@ -1130,12 +1211,14 @@
     // 0:00.00, so they can never drift from the clock.
     var COUNTDOWN_FROM = 3;
     var countdownTimer = null;
+    var raceCountdownFrame = null; // requestAnimationFrame id -- see runRaceCountdown
     var countdownEl = document.getElementById("countdown");
     var countdownNum = document.getElementById("countdown-num");
     var countdownKicker = document.getElementById("countdown-kicker");
     function cancelCountdown() {
       clearTimeout(countdownTimer);
       countdownTimer = null;
+      if (raceCountdownFrame !== null) { cancelAnimationFrame(raceCountdownFrame); raceCountdownFrame = null; }
       countdownEl.hidden = true;
     }
     function showCount(text, cls) {
@@ -1179,6 +1262,36 @@
       countdownTimer = setTimeout(cancelCountdown, 500);
     }
 
+    // Race variant of runCountdown: both racers target the same absolute
+    // instant (startAt, Date.now()-space) instead of counting down a
+    // fixed 3 seconds from whenever their own countdown happened to
+    // start. Re-deriving the displayed number from startAt - Date.now()
+    // on every animation frame (rather than trusting a setTimeout chain's
+    // nominal 1000ms) is what keeps this from drifting -- the only
+    // remaining skew between the two racers is relay delivery latency of
+    // the race-start message itself and any clock skew between their two
+    // machines, both small next to RACE_STARTUP_MARGIN_MS's own margin.
+    function runRaceCountdown(ch, startAt) {
+      cancelCountdown();
+      var lastN = null;
+      countdownKicker.textContent = "Get ready";
+      function frame() {
+        if (!attempt || attempt.ch !== ch || (attempt.state !== "countdown" && attempt.state !== "pending")) return;
+        var remainMs = startAt - Date.now();
+        if (remainMs <= 0) {
+          attempt.state = "pending";
+          pendingSince = Date.now();
+          E.start(CATEGORIES[ch.cat].skill, 1, ch.map, CATEGORIES[ch.cat].flags || 0);
+          raceCountdownFrame = null;
+          return;
+        }
+        var n = Math.ceil(remainMs / 1000);
+        if (n !== lastN) { showCount(String(n)); tone(880, 0.12); setStatusText(n + "…", "gold"); lastN = n; }
+        raceCountdownFrame = requestAnimationFrame(frame);
+      }
+      raceCountdownFrame = requestAnimationFrame(frame);
+    }
+
     // ---- Free play: warp to any map at any skill, no timer ----
     // Goes through the same engine start as a challenge, but flagged so
     // the level load that follows is never mistaken for a timed attempt
@@ -1219,12 +1332,344 @@
       });
     })();
 
+    // =====================================================================
+    // Race a Friend
+    // =====================================================================
+    // Two players race the same challenge at the same time; first valid
+    // finish wins. Each side runs its own completely independent copy of
+    // the engine (its own tab, its own consoleplayer) -- there's no
+    // shared game state to keep in sync, no ticcmd exchange, nothing like
+    // real Doom netplay. All a race actually needs on top of a solo run
+    // is: agreeing on a start instant (runRaceCountdown, above), a small
+    // live-progress side channel so each screen can show the other's
+    // status, and arbitrating who validly finished first. Everything that
+    // decides whether a run is *valid* -- finishAttempt, liveRuleFailure,
+    // the whole CATEGORIES rule set -- is reused completely unmodified;
+    // a losing racer's own run still resolves normally and can still be
+    // a personal best (recordRun doesn't know or care that a race was
+    // happening).
+    //
+    // Transport: Azure Web PubSub, via the same api/negotiate token-
+    // issuing function doom-assist's own multiplayer uses (adapted here,
+    // not copied wholesale -- see api/negotiate/index.js's own comment).
+    // Unlike doom-assist's transport, which carries real Doom netcode
+    // packets and so base64-encodes raw bytes, this only ever sends small
+    // JSON objects -- plain JSON.stringify/JSON.parse, no byte encoding.
+    var RACE_ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I -- easy to misread
+    var RACE_ROOM_CODE_LENGTH = 5;
+    var RACE_STARTUP_MARGIN_MS = 4500; // relay round-trip + a full 3-2-1, with room to spare
+    var RACE_PROGRESS_INTERVAL_MS = 500;
+
+    function raceGenerateRoomCode() {
+      var code = "";
+      for (var i = 0; i < RACE_ROOM_CODE_LENGTH; i++) {
+        code += RACE_ROOM_CODE_ALPHABET[Math.floor(Math.random() * RACE_ROOM_CODE_ALPHABET.length)];
+      }
+      return code;
+    }
+
+    // Asks api/negotiate for a Web PubSub client access URL scoped to just
+    // this one room.
+    function raceNegotiate(roomCode) {
+      return fetch("/api/negotiate?group=" + encodeURIComponent(roomCode)).then(function (res) {
+        if (!res.ok) throw new Error("Couldn't reach the race relay (HTTP " + res.status + ")");
+        return res.json();
+      }).then(function (data) { return data.url; });
+    }
+
+    // Opens the WebSocket to Azure Web PubSub and joins the room's group.
+    // Resolves once joining actually succeeds (not just once the socket
+    // opens). `send` takes a plain JS object -- not raw bytes, unlike
+    // doom-assist's equivalent -- and JSON-encodes it directly.
+    function raceOpenTransport(clientUrl, roomCode, onReceive) {
+      return new Promise(function (resolve, reject) {
+        var ws = new WebSocket(clientUrl, "json.webpubsub.azure.v1");
+        var settled = false;
+
+        ws.onopen = function () {
+          ws.send(JSON.stringify({ type: "joinGroup", group: roomCode, ackId: 1 }));
+        };
+        ws.onmessage = function (evt) {
+          var msg;
+          try { msg = JSON.parse(evt.data); } catch (e) { return; }
+          if (msg.type === "ack" && msg.ackId === 1) {
+            settled = true;
+            if (msg.success) {
+              resolve({
+                send: function (obj) {
+                  if (ws.readyState !== WebSocket.OPEN) return;
+                  ws.send(JSON.stringify({
+                    type: "sendToGroup", group: roomCode, dataType: "json",
+                    noEcho: true, // we're the only two members of this group
+                    data: obj
+                  }));
+                },
+                close: function () { ws.close(); }
+              });
+            } else {
+              reject(new Error((msg.error && msg.error.message) || "The relay rejected joining this room"));
+            }
+            return;
+          }
+          if (msg.type === "message" && msg.from === "group" && msg.dataType === "json") {
+            onReceive(msg.data);
+          }
+        };
+        ws.onerror = function () {
+          if (!settled) { settled = true; reject(new Error("Connection to the relay failed")); }
+        };
+        ws.onclose = function (evt) {
+          if (!settled) { settled = true; reject(new Error("Connection to the relay closed (code " + evt.code + ")")); }
+        };
+      });
+    }
+
+    // race is null whenever no race is connected. { role: "host"|"guest",
+    // roomCode, transport, challenge, started, mine, theirs, theirsProgress,
+    // winner }. mine/theirs are {state, tics} once that side has a
+    // terminal result ("done"/"dead"/"timeout"/"invalid"/"left").
+    var race = null;
+
+    var raceChoiceEl = document.getElementById("race-choice");
+    var raceCodeDisplayEl = document.getElementById("race-code-display");
+    var raceCodeValueEl = document.getElementById("race-code-value");
+    var raceStatusEl = document.getElementById("race-status");
+    var raceShareRowEl = document.getElementById("race-share-row");
+    var raceLeaveBtn = document.getElementById("race-leave");
+    var raceJoinCodeInput = document.getElementById("race-join-code");
+    if (linkedRaceCode) raceJoinCodeInput.value = linkedRaceCode; // pre-fill only, never auto-join
+
+    function raceSetStatus(text, cls) {
+      raceStatusEl.textContent = text;
+      raceStatusEl.className = "race-status" + (cls ? " " + cls : "");
+      raceStatusEl.hidden = !text;
+    }
+
+    function raceSend(obj) {
+      if (race && race.transport) race.transport.send(obj);
+    }
+
+    function raceShowConnectedUI() {
+      raceChoiceEl.hidden = true;
+      raceLeaveBtn.hidden = false;
+      if (race.role === "host") {
+        raceCodeValueEl.textContent = race.roomCode;
+        raceCodeDisplayEl.hidden = false;
+        raceShareRowEl.innerHTML = "";
+        var inviteUrl = window.location.origin + window.location.pathname + "?racejoin=" + encodeURIComponent(race.roomCode);
+        appendShareButtons(raceShareRowEl, "Race me live in DOOM Speed Run! Room code: " + race.roomCode + "\n" + inviteUrl, "Race me in DOOM Speed Run");
+        raceShareRowEl.hidden = false;
+      }
+    }
+
+    // Tears the race down and returns the panel to the Host/Join choice.
+    // Used both when the player deliberately leaves (Leave button, or a
+    // mid-race Restart/Backspace -- see restartChallenge) and after a
+    // race concludes normally.
+    function raceLeave(message) {
+      if (!race) return;
+      if (!race.mine) raceSend({ type: "race-result", state: "left", tics: 0 });
+      if (race.transport) race.transport.close();
+      race = null;
+      raceChoiceEl.hidden = false;
+      raceCodeDisplayEl.hidden = true;
+      raceShareRowEl.hidden = true;
+      raceLeaveBtn.hidden = true;
+      raceSetStatus("");
+      renderRaceBar();
+      if (message) toast(message);
+    }
+
+    // Both racers call this with the exact same (ch, startAt) -- the host
+    // computes startAt once and the guest receives that same value over
+    // the wire (see raceHandleMessage) -- so runRaceCountdown's wall-
+    // clock-derived countdown lands both engines' first tic close
+    // together regardless of relay latency.
+    function raceBeginCountdown(ch, startAt) {
+      race.challenge = ch;
+      raceCodeDisplayEl.hidden = true;
+      raceSetStatus("Racing: " + ch.title, "ok");
+      renderRaceBar();
+      selected = ch;
+      startChallenge(ch, startAt);
+    }
+
+    function raceHandleMessage(msg) {
+      if (!race || !msg || !msg.type) return;
+      if (msg.type === "race-hello" && race.role === "host" && !race.started) {
+        race.started = true;
+        var startAt = Date.now() + RACE_STARTUP_MARGIN_MS;
+        raceSend({ type: "race-start", challengeId: race.challenge.id, startAt: startAt });
+        raceBeginCountdown(race.challenge, startAt);
+      } else if (msg.type === "race-start" && race.role === "guest" && !race.started) {
+        var ch = challengeById(msg.challengeId);
+        if (!ch) { raceSetStatus("Couldn't find that challenge.", "bad"); return; }
+        race.started = true;
+        raceBeginCountdown(ch, msg.startAt);
+      } else if (msg.type === "race-progress") {
+        race.theirsProgress = msg;
+        renderRaceBar();
+      } else if (msg.type === "race-result") {
+        race.theirs = { state: msg.state, tics: msg.tics };
+        renderRaceBar();
+        raceCheckArbitration();
+      }
+    }
+
+    // First side whose result is a *valid* "done" is provisionally the
+    // winner immediately -- nobody should have to wait for the loser to
+    // also finish. If the other side's "done" result arrives later with
+    // a lower tic count, the win flips: each racer's own leveltime is
+    // itself a synchronized clock (both countdowns targeted the same
+    // startAt), so comparing tics is more robust than trusting whichever
+    // result happened to arrive first over the relay.
+    function raceOutcome(mine, theirs) {
+      var mineDone = !!(mine && mine.state === "done");
+      var theirsDone = !!(theirs && theirs.state === "done");
+      if (mineDone && theirsDone) return mine.tics <= theirs.tics ? "me" : "opponent";
+      if (mineDone) return "me";
+      if (theirsDone) return "opponent";
+      if (mine && theirs) return "none"; // both known, neither validly finished
+      return null; // still waiting on at least one side
+    }
+
+    function raceCheckArbitration() {
+      if (!race) return;
+      // An opponent who leaves before I've finished doesn't end my own
+      // race -- I keep going solo, just informed they bailed. If I'd
+      // already won (race.mine.state==="done"), that's already decided
+      // below and this never overrides it, since raceOutcome only ever
+      // returns "me" or "opponent" once someone's actually done.
+      if (race.theirs && race.theirs.state === "left" && !(race.mine && race.mine.state === "done")) {
+        if (race.winner === "opponent-left") return;
+        race.winner = "opponent-left";
+        toast("Your opponent left the race.");
+        renderRaceBar();
+        return;
+      }
+      var outcome = raceOutcome(race.mine, race.theirs);
+      if (outcome === null || outcome === race.winner) return;
+      race.winner = outcome;
+      if (outcome === "me") toast("🏆 You won the race!");
+      else if (outcome === "opponent") toast("Your opponent won the race.");
+      else toast("Race ended — no valid finisher.");
+      renderRaceBar();
+    }
+
+    // Reports my own terminal result (called from finishAttempt/
+    // failAttempt, unconditionally -- a no-op whenever no race is active).
+    function raceReportResult() {
+      if (!race || !race.transport) return;
+      race.mine = { state: attempt.state, tics: attempt.tics };
+      raceSend({ type: "race-result", state: attempt.state, tics: attempt.tics });
+      raceCheckArbitration();
+      renderRaceBar();
+    }
+
+    var raceProgressTimer = setInterval(function () {
+      if (!race || !race.transport || !attempt || attempt.state !== "running") return;
+      var cat = CATEGORIES[attempt.ch.cat];
+      raceSend({
+        type: "race-progress",
+        tics: attempt.tics,
+        kills: E.get_kills(), totalKills: E.get_total_kills(),
+        secrets: E.get_secrets(), totalSecrets: E.get_total_secrets(),
+        items: E.get_items(), totalItems: E.get_total_items(),
+        alive: E.is_dead() !== 1,
+        valid: !liveRuleFailure(cat),
+        state: attempt.state
+      });
+    }, RACE_PROGRESS_INTERVAL_MS);
+
+    // Mirrors #run-bar's own rendering conventions (same classes, same
+    // "-:--.--"/idle-style placeholders) so the two rows read as a pair.
+    function renderRaceBar() {
+      var bar = document.getElementById("race-bar");
+      var sub = document.getElementById("race-bar-sub");
+      var timer = document.getElementById("race-bar-timer");
+      var status = document.getElementById("race-bar-status");
+      if (!race || !race.challenge) { bar.hidden = true; return; }
+      bar.hidden = false;
+      sub.textContent = race.challenge.title;
+      if (race.winner) {
+        if (race.winner === "me") { timer.className = "run-timer done"; status.className = "run-bar-status ok"; status.textContent = "You won!"; }
+        else if (race.winner === "opponent") { timer.className = "run-timer fail"; status.className = "run-bar-status bad"; status.textContent = "Opponent won"; }
+        else if (race.winner === "opponent-left") { status.className = "run-bar-status"; status.textContent = "Opponent left"; }
+        else { status.className = "run-bar-status"; status.textContent = "No valid finisher"; }
+        if (race.theirs && race.theirs.state === "done") timer.textContent = fmtTics(race.theirs.tics);
+        return;
+      }
+      if (race.theirsProgress) {
+        var p = race.theirsProgress;
+        timer.textContent = fmtTics(p.tics);
+        timer.className = "run-timer";
+        var bits = [];
+        if (!p.alive) bits.push("Dead");
+        else if (p.valid === false) bits.push("Rule broken");
+        else if (p.totalKills) bits.push("Kills " + p.kills + "/" + p.totalKills);
+        else if (p.totalSecrets) bits.push("Secrets " + p.secrets + "/" + p.totalSecrets);
+        else bits.push("Racing…");
+        status.textContent = bits.join(" · ");
+        status.className = "run-bar-status" + (p.alive && p.valid !== false ? "" : " bad");
+      } else {
+        timer.textContent = "0:00.00";
+        timer.className = "run-timer idle";
+        status.textContent = "Waiting…";
+        status.className = "run-bar-status";
+      }
+    }
+
+    document.getElementById("race-host").addEventListener("click", function () {
+      if (!E) { toast("Still loading…"); return; }
+      var ch = selected;
+      var code = raceGenerateRoomCode();
+      race = { role: "host", roomCode: code, transport: null, challenge: ch, started: false, mine: null, theirs: null, theirsProgress: null, winner: null };
+      raceSetStatus("Opening room…");
+      raceNegotiate(code).then(function (url) {
+        return raceOpenTransport(url, code, raceHandleMessage);
+      }).then(function (transport) {
+        if (!race) { transport.close(); return; } // left while connecting
+        race.transport = transport;
+        raceSetStatus("Waiting for opponent to join…");
+        raceShowConnectedUI();
+      }).catch(function (err) {
+        raceSetStatus(err.message, "bad");
+        race = null;
+      });
+    });
+
+    document.getElementById("race-join").addEventListener("click", function () {
+      if (!E) { toast("Still loading…"); return; }
+      var code = raceJoinCodeInput.value.trim().toUpperCase();
+      if (!code) { raceSetStatus("Enter a room code first.", "bad"); return; }
+      race = { role: "guest", roomCode: code, transport: null, challenge: null, started: false, mine: null, theirs: null, theirsProgress: null, winner: null };
+      raceSetStatus("Connecting…");
+      raceNegotiate(code).then(function (url) {
+        return raceOpenTransport(url, code, raceHandleMessage);
+      }).then(function (transport) {
+        if (!race) { transport.close(); return; } // left while connecting
+        race.transport = transport;
+        raceSetStatus("Joined — waiting for host to start…", "ok");
+        raceShowConnectedUI();
+        transport.send({ type: "race-hello" });
+      }).catch(function (err) {
+        raceSetStatus(err.message, "bad");
+        race = null;
+      });
+    });
+
+    raceLeaveBtn.addEventListener("click", function () { raceLeave("Left the race — still playing solo"); });
+
     // Abort whatever's happening (countdown, a run, or a finished one)
     // and go again from the countdown. Bound to the bar's button and to
-    // Backspace, which vanilla DOOM only uses inside its menus.
+    // Backspace, which vanilla DOOM only uses inside its menus. Leaves
+    // any active race first (see raceLeave) -- restarting solo mid-race
+    // is simpler and safer than re-running the whole host/join handshake
+    // for both sides.
     function restartChallenge() {
       var ch = attempt && attempt.ch ? attempt.ch : selected;
       if (!ch || !E) return;
+      if (race) raceLeave("Left the race — still playing solo");
       startChallenge(ch);
     }
     document.getElementById("run-restart").addEventListener("click", function () { restartChallenge(); });
@@ -1257,8 +1702,23 @@
       attempt.state = state;
       attempt.tics = E.get_leveltime();
       attempt.reason = reason;
+      raceReportResult();
       renderBar();
       showOverlay();
+    }
+
+    // Category rules that can fail mid-run, before the exit -- as opposed
+    // to allKills/allSecrets/allItems, which can only be judged once the
+    // level actually ends (see finishAttempt). Factored out of pollEngine
+    // so a race's live "valid" flag (raceStartProgressSender below) can't
+    // drift from what would actually end the run for real.
+    function liveRuleFailure(cat) {
+      if (cat.pacifist && E.get_monster_hits() > 0) return "You hurt a monster. " + cat.name + " runs can't damage monsters directly — barrels and telefrags are the only exceptions.";
+      if (cat.tyson && E.get_nontyson_hits() > 0) return "Only fists, pistol, and chainsaw are allowed in a Tyson run.";
+      if (cat.untouched && E.get_player_damage() > 0) return "You took damage. Untouched runs have to reach the exit without a scratch.";
+      if (cat.stroller && E.get_run_tics() > 0) return "You ran. Stroller runs are walking only — no run key, and on touch push the stick less than halfway.";
+      if (cat.stroller && E.get_strafe_tics() > 0) return "You strafed. Stroller runs allow no sideways movement at all.";
+      return null;
     }
 
     function finishAttempt() {
@@ -1290,6 +1750,7 @@
         attempt.isPB = rec.isPB;
         attempt.prevBest = rec.prevBest;
       }
+      raceReportResult();
       renderBar();
       showOverlay();
       renderPanel();
@@ -1351,13 +1812,10 @@
         attempt.tics = lt;
         if (!attempt.goPlayed && lt > 0) { attempt.goPlayed = true; signalGo(); }
         var cat = CATEGORIES[attempt.ch.cat];
+        var liveFail = liveRuleFailure(cat);
         if (E.is_dead() === 1) failAttempt("dead", "You died.");
         else if (lt > attempt.limitTics) failAttempt("timeout", "This challenge has a " + fmtLimit(attempt.ch.limitSecs) + " limit.");
-        else if (cat.pacifist && E.get_monster_hits() > 0) failAttempt("invalid", "You hurt a monster. " + cat.name + " runs can't damage monsters directly — barrels and telefrags are the only exceptions.");
-        else if (cat.tyson && E.get_nontyson_hits() > 0) failAttempt("invalid", "Only fists, pistol, and chainsaw are allowed in a Tyson run.");
-        else if (cat.untouched && E.get_player_damage() > 0) failAttempt("invalid", "You took damage. Untouched runs have to reach the exit without a scratch.");
-        else if (cat.stroller && E.get_run_tics() > 0) failAttempt("invalid", "You ran. Stroller runs are walking only — no run key, and on touch push the stick less than halfway.");
-        else if (cat.stroller && E.get_strafe_tics() > 0) failAttempt("invalid", "You strafed. Stroller runs allow no sideways movement at all.");
+        else if (liveFail) failAttempt("invalid", liveFail);
         else renderBarLive();
       }
     }
@@ -1941,7 +2399,7 @@
       setStatus("Exception thrown, see JavaScript console");
     };
     // Debug handle (browser console): window.speedrun.state()
-    window.speedrun = { share: function (id, tics) { return runShareText({ ch: challengeById(id), tics: tics || 0, isPB: false, day: -1 }); }, state: function () { return { engine: !!E, attempt: attempt, seen: seen, selected: selected && selected.id, daily: daily.id, countdown: !countdownEl.hidden, countdownText: countdownNum.textContent, totalKills: E ? E.get_total_kills() : null, nomonsters: E ? E.get_nomonsters() : null, fast: E ? E.get_fastparm() : null, respawn: E ? E.get_respawnparm() : null, runTics: E ? E.get_run_tics() : null, strafeTics: E ? E.get_strafe_tics() : null, damage: E ? E.get_player_damage() : null, count: CHALLENGES.length }; } };
+    window.speedrun = { share: function (id, tics) { return runShareText({ ch: challengeById(id), tics: tics || 0, isPB: false, day: -1 }); }, state: function () { return { engine: !!E, attempt: attempt, seen: seen, selected: selected && selected.id, daily: daily.id, countdown: !countdownEl.hidden, countdownText: countdownNum.textContent, totalKills: E ? E.get_total_kills() : null, nomonsters: E ? E.get_nomonsters() : null, fast: E ? E.get_fastparm() : null, respawn: E ? E.get_respawnparm() : null, runTics: E ? E.get_run_tics() : null, strafeTics: E ? E.get_strafe_tics() : null, damage: E ? E.get_player_damage() : null, count: CHALLENGES.length, race: race }; } };
   })();
   </script>
   {{{ SCRIPT }}}

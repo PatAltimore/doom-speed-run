@@ -1,0 +1,9 @@
+{
+  "name": "doom-speed-run-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "doom-speed-run's only server-side piece: mints room-scoped Azure Web PubSub tokens for Race Mode. See api/negotiate/index.js.",
+  "dependencies": {
+    "@azure/web-pubsub": "^1.1.2"
+  }
+}
