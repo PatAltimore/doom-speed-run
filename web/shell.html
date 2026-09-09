@@ -1452,7 +1452,7 @@
         raceCodeDisplayEl.hidden = false;
         raceShareRowEl.innerHTML = "";
         var inviteUrl = window.location.origin + window.location.pathname + "?racejoin=" + encodeURIComponent(race.roomCode);
-        appendShareButtons(raceShareRowEl, "Race me live in DOOM Speed Run! Room code: " + race.roomCode + "\n" + inviteUrl, "Race me in DOOM Speed Run");
+        appendShareButtons(raceShareRowEl, "Race me live in DOOM Speed Run! Room code: " + race.roomCode + "\n" + inviteUrl, "Race me in DOOM Speed Run", inviteUrl);
         raceShareRowEl.hidden = false;
       }
     }
@@ -1664,6 +1664,45 @@
     document.getElementById("race-join").addEventListener("click", function () {
       raceJoin(raceJoinCodeInput.value.trim().toUpperCase());
     });
+
+    // Mobile browsers (iOS Safari especially) can suspend or drop a
+    // backgrounded tab's WebSocket the moment the OS hands off to
+    // another app -- exactly what happens when Text/Email is tapped to
+    // share an invite (appendShareButtons navigates via location.href
+    // to an sms:/mailto: link, which backgrounds this tab). Coming back
+    // from that with a silently-dead connection is what left both sides
+    // stuck saying "waiting" forever: the host never actually received
+    // the guest's race-hello, and neither side had any way to notice.
+    // Re-establish the connection for the same room whenever the page
+    // becomes visible again, as long as the race hasn't started yet --
+    // once running, each side's own game clock is what actually matters
+    // for the result, so a dropped connection there only costs live
+    // opponent-progress updates rather than the whole handshake.
+    function raceReconnect() {
+      if (!race || race.started || !race.transport) return;
+      var role = race.role, code = race.roomCode, challenge = race.challenge;
+      try { race.transport.close(); } catch (e) {}
+      raceSetStatus("Reconnecting…");
+      raceNegotiate(code).then(function (url) {
+        return raceOpenTransport(url, code, raceHandleMessage);
+      }).then(function (transport) {
+        if (!race || race.roomCode !== code) { transport.close(); return; } // left, or moved on to a different room meanwhile
+        race.transport = transport;
+        race.challenge = challenge;
+        if (role === "host") {
+          raceSetStatus("Waiting for opponent to join…");
+        } else {
+          raceSetStatus("Joined — waiting for host to start…", "ok");
+          transport.send({ type: "race-hello" }); // in case the original one never reached a live host
+        }
+      }).catch(function (err) {
+        raceSetStatus(err.message, "bad");
+      });
+    }
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") raceReconnect();
+    });
+    window.addEventListener("pageshow", function () { raceReconnect(); });
 
     raceLeaveBtn.addEventListener("click", function () { raceLeave("Left the race — still playing solo"); });
 
@@ -1984,7 +2023,7 @@
         else if (attempt.isPB && attempt.prevBest !== null) ovMeta.appendChild(metaLine("Previous best", fmtTics(attempt.prevBest)));
         if (attempt.target) ovMeta.appendChild(metaLine(attempt.tics < attempt.target ? "You beat your friend's" : "Your friend's time", fmtTics(attempt.target)));
         if (attempt.day === today && ch === daily) ovMeta.appendChild(metaLine("Daily challenge", dayLabel(today)));
-        appendShareButtons(ovActions, runShareText(attempt), "My DOOM speed attempt: " + ch.title + " in " + fmtTics(attempt.tics));
+        appendShareButtons(ovActions, runShareText(attempt), "My DOOM speed attempt: " + ch.title + " in " + fmtTics(attempt.tics), shareUrlFor(ch, attempt.tics));
         ovActions.appendChild(button("Run again", "", function () { startChallenge(ch); }));
         ovActions.appendChild(button("Close", "btn-gray", function () { hideOverlay(); }));
       } else {
@@ -2108,13 +2147,28 @@
       if (r.day === today && ch === daily) lines.push("Today's daily challenge, " + dayLabel(today));
       if (ch.wr) lines.push("DSDA world record: " + ch.wr + " by " + ch.wrBy);
       lines.push("");
-      lines.push("Think you can beat it? " + shareUrlFor(ch, r.tics));
+      lines.push("Think you can beat it?");
+      // Isolated on its own trailing line, not inline after a sentence --
+      // sms:/mailto: bodies are always plain text (there's no way to send
+      // an actual <a href> through either), so whether the recipient's
+      // app turns this into a tappable link comes down entirely to its
+      // own auto-linker, and a bare URL alone on a line is what those are
+      // most reliably built to recognize.
+      lines.push(shareUrlFor(ch, r.tics));
       return lines.join("\n");
     }
-    function appendShareButtons(container, text, subject) {
+    // `url`, when given, is handed to the Web Share API separately from
+    // `text` -- apps on the receiving end of that share sheet (Messages,
+    // Mail, etc.) commonly render a `url` field as a real link/preview
+    // rather than plain text, so it's pulled back out of the text body
+    // for that one path to avoid showing the same link twice.
+    function appendShareButtons(container, text, subject, url) {
+      var body = url ? text.replace("\n" + url, "") : text;
       if (navigator.share) {
         container.appendChild(button("Share…", "", function () {
-          navigator.share({ title: subject, text: text }).catch(function () {});
+          var payload = { title: subject, text: body };
+          if (url) payload.url = url;
+          navigator.share(payload).catch(function () {});
         }));
       }
       container.appendChild(button("Text", "", function () {
