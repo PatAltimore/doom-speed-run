@@ -528,8 +528,6 @@
     .run-restart { flex: 0 0 auto; font-size: 14px; padding: 5px 10px; white-space: nowrap; }
     .run-restart[hidden] { display: none; }
     .share-row .btn { flex: 1 1 30%; font-size: 15px; padding: 7px 6px; }
-    .ack-note { font-size: 15px; color: var(--text-dim); margin-top: 14px; line-height: 1.4; }
-    .ack-note a { color: var(--text); }
 
     /* ---- Race a Friend ---- */
     .race-panel { display: flex; flex-direction: column; gap: 8px; }
@@ -756,17 +754,6 @@
         <button class="btn" id="free-start" type="button">Warp</button>
         <p class="row-meta free-note">No timer, no rules — just play. Cheat codes stay off. The game keeps going into the next level when you exit.</p>
       </div>
-
-      <h2>Share Your Times</h2>
-      <div class="share-row" id="share-all-row"></div>
-      <p class="ack-note">
-        Each challenge's time limit is four times its DSDA record, rounded up to a half minute, between 2:00 and 10:00.
-        Times are in-game time (35 tics/sec), the same clock
-        <a href="https://dsdarchive.com/wads/doom" target="_blank" rel="noopener">DSDA</a> records use;
-        the "record" on each card is the human world record there for that map and category.
-        Best times are saved in this browser only. A new daily challenge is picked at midnight UTC —
-        the same one for everybody.
-      </p>
     </div>
   </div>
 
@@ -1647,9 +1634,13 @@
       });
     });
 
-    document.getElementById("race-join").addEventListener("click", function () {
+    // Shared by the Join button and a race invite link's auto-join (see
+    // linkedRaceCode/onRuntimeInitialized below) -- a link only exists to
+    // join that one room, so it skips the extra click entirely rather
+    // than making the guest re-enter or re-confirm a code they didn't
+    // type themselves.
+    function raceJoin(code) {
       if (!E) { toast("Still loading…"); return; }
-      var code = raceJoinCodeInput.value.trim().toUpperCase();
       if (!code) { raceSetStatus("Enter a room code first.", "bad"); return; }
       race = { role: "guest", roomCode: code, transport: null, challenge: null, started: false, mine: null, theirs: null, theirsProgress: null, winner: null };
       raceSetStatus("Connecting…");
@@ -1665,6 +1656,9 @@
         raceSetStatus(err.message, "bad");
         race = null;
       });
+    }
+    document.getElementById("race-join").addEventListener("click", function () {
+      raceJoin(raceJoinCodeInput.value.trim().toUpperCase());
     });
 
     raceLeaveBtn.addEventListener("click", function () { raceLeave("Left the race — still playing solo"); });
@@ -2082,14 +2076,7 @@
       });
       document.getElementById("challenge-count").textContent = shown + " of " + CHALLENGES.length + " challenges";
     }
-    function renderShareAll() {
-      var row = document.getElementById("share-all-row");
-      row.innerHTML = "";
-      var text = allTimesShareText();
-      if (!text) { row.appendChild(el("span", "row-meta", "Finish a challenge to share your times.")); return; }
-      appendShareButtons(row, text, "My DOOM speed run times");
-    }
-    function renderPanel() { renderDailyCard(); renderChallengeList(); renderShareAll(); }
+    function renderPanel() { renderDailyCard(); renderChallengeList(); }
     function renderAll() { renderBar(); renderPanel(); }
 
     // Midnight UTC can pass while the page is open.
@@ -2115,18 +2102,6 @@
       if (ch.wr) lines.push("DSDA world record: " + ch.wr + " by " + ch.wrBy);
       lines.push("");
       lines.push("Think you can beat it? " + shareUrlFor(ch, r.tics));
-      return lines.join("\n");
-    }
-    function allTimesShareText() {
-      var d = loadTimes(), lines = [], any = false;
-      CHALLENGES.forEach(function (ch) {
-        var c = d.challenges[ch.id];
-        if (c && c.best) { any = true; lines.push("• " + ch.title + " — " + fmtTics(c.best.tics)); }
-      });
-      if (!any) return null;
-      lines.unshift("🏃 My DOOM Speed Run best times:");
-      lines.push("");
-      lines.push("Beat them here: " + window.location.origin + window.location.pathname);
       return lines.join("\n");
     }
     function appendShareButtons(container, text, subject) {
@@ -2415,6 +2390,7 @@
         setStatus("");
         renderAll();
         if (!overlay.hidden) showOverlay(); // enables the Start button
+        if (linkedRaceCode) raceJoin(linkedRaceCode); // race invite link: join immediately, no click needed
       }
     };
     setStatus("Downloading...");
