@@ -1416,6 +1416,31 @@
     // terminal result ("done"/"dead"/"timeout"/"invalid"/"left").
     var race = null;
 
+    // Guest-only: keeps re-announcing "race-hello" every 1.5s, with no
+    // give-up point, for as long as the host hasn't started the race yet.
+    // A guest's first hello can easily go nowhere -- clicking a shared
+    // invite link is exactly what leaves the host's own tab backgrounded
+    // (and its socket silently dead, see raceReconnect's comment) at the
+    // moment a friend opens that link, so there may be nobody listening
+    // yet. Without a repeat, a guest who arrives before the host's own
+    // reconnect kicks back in has no way forward except manually
+    // re-joining. With it, the next hello reaches the host the instant
+    // its connection comes back to life, and the race starts right away
+    // -- the same fix doom-assist's mpWaitForHostReady ping/pong makes,
+    // adapted here since this transport only ever carries plain JSON
+    // messages rather than a real ping/pong control channel.
+    var raceHelloTimer = null;
+    function raceStartHelloPoll() {
+      raceStopHelloPoll();
+      raceHelloTimer = setInterval(function () {
+        if (!race || race.role !== "guest" || race.started) { raceStopHelloPoll(); return; }
+        raceSend({ type: "race-hello" });
+      }, 1500);
+    }
+    function raceStopHelloPoll() {
+      if (raceHelloTimer) { clearInterval(raceHelloTimer); raceHelloTimer = null; }
+    }
+
     var raceChoiceEl = document.getElementById("race-choice");
     var raceCodeDisplayEl = document.getElementById("race-code-display");
     var raceCodeValueEl = document.getElementById("race-code-value");
@@ -1463,6 +1488,7 @@
     // race concludes normally.
     function raceLeave(message) {
       if (!race) return;
+      raceStopHelloPoll();
       if (!race.mine) raceSend({ type: "race-result", state: "left", tics: 0 });
       if (race.transport) race.transport.close();
       race = null;
@@ -1500,6 +1526,7 @@
         var ch = challengeById(msg.challengeId);
         if (!ch) { raceSetStatus("Couldn't find that challenge.", "bad"); return; }
         race.started = true;
+        raceStopHelloPoll();
         raceBeginCountdown(ch, msg.startAt);
       } else if (msg.type === "race-progress") {
         race.theirsProgress = msg;
@@ -1656,6 +1683,7 @@
         raceSetStatus("Joined — waiting for host to start…", "ok");
         raceShowConnectedUI();
         transport.send({ type: "race-hello" });
+        raceStartHelloPoll();
       }).catch(function (err) {
         raceSetStatus(err.message, "bad");
         race = null;
