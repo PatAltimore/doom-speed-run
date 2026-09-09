@@ -14,11 +14,11 @@
 // nothing else. It never sees a single race message once that URL is
 // handed out.
 //
-// This deployment intentionally reuses doom-assist's existing Azure Web
-// PubSub resource (same connection string value, set as this app's own
-// WEB_PUBSUB_CONNECTION_STRING setting) rather than standing up a second
-// resource -- see hubName below for how the two projects' rooms stay
-// isolated on that one shared resource.
+// This runs against its own dedicated Azure Web PubSub resource
+// ("doom-speed-run", in the rg-doom-speed-run resource group) -- an
+// earlier version of this deployment reused doom-assist's resource
+// instead, decoupled here so neither project's resource, quota, or
+// billing depends on the other.
 //
 // Deployed as an Azure Static Web Apps "managed function" (see
 // .github/workflows/azure-static-web-apps.yml's api_location: "api") --
@@ -29,16 +29,12 @@
 const { WebPubSubServiceClient } = require("@azure/web-pubsub");
 
 // Set as an SWA "application setting" (Azure Portal, or `az staticwebapp
-// appsettings set`) -- the same connection-string value doom-assist's own
-// app setting already holds, since this reuses that project's Web PubSub
-// resource rather than a new one. Never committed here.
+// appsettings set`) once the Web PubSub resource exists -- never
+// committed here.
 const connectionString = process.env.WEB_PUBSUB_CONNECTION_STRING;
 
 // A hub is Web PubSub's own namespacing concept (roughly: one hub per
-// application sharing an instance). This has to differ from doom-assist's
-// own "doomassist" hub -- rooms are scoped to a hub, so a different hub
-// name is what keeps a doom-speed-run race and a doom-assist netgame from
-// ever colliding even though they share the same underlying resource.
+// application sharing an instance) -- doom-speed-run only ever needs one.
 const hubName = "doomspeedrun";
 
 module.exports = async function (context, req) {
@@ -52,7 +48,7 @@ module.exports = async function (context, req) {
 
     const group = (req.query.group || "").trim();
 
-    // Room codes are generated client-side (shell.html's mpGenerateRoomCode)
+    // Room codes are generated client-side (shell.html's raceGenerateRoomCode)
     // from a fixed short alphanumeric alphabet -- this isn't validating a
     // password, just guarding against something malformed being used as a
     // Web PubSub group name or role string.
@@ -68,9 +64,9 @@ module.exports = async function (context, req) {
 
     // Scoped narrowly to this one room: this token can join and publish
     // to *this* group only, not any other room that happens to be active
-    // on the same (shared, free-tier) Web PubSub instance at the same
-    // time. See learn.microsoft.com's json.webpubsub.azure.v1 subprotocol
-    // reference for what these two role strings grant.
+    // on the same (free-tier) Web PubSub instance at the same time. See
+    // learn.microsoft.com's json.webpubsub.azure.v1 subprotocol reference
+    // for what these two role strings grant.
     const token = await serviceClient.getClientAccessToken({
         roles: [
             `webpubsub.joinLeaveGroup.${group}`,
