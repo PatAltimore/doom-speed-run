@@ -1445,6 +1445,15 @@
       raceStatusEl.hidden = !text;
     }
 
+    // Shared by the overlay's own "Race a Friend" button and a race
+    // invite link's auto-scroll on load (see linkedRaceCode below) --
+    // the one way in to this panel that doesn't require first fighting
+    // past the start dialog to find it.
+    function scrollToRacePanel() {
+      var panel = document.getElementById("race-panel");
+      if (panel.scrollIntoView) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
     function raceSend(obj) {
       if (race && race.transport) race.transport.send(obj);
     }
@@ -1938,7 +1947,15 @@
         startBtn.id = "ov-start";
         ovActions.appendChild(startBtn);
         // On a phone this dialog is a full-screen modal sitting on top of
-        // the list, so it needs its own way out to the other challenges.
+        // the whole panel (see .overlay's own mobile media query), so it
+        // needs its own way out to the other challenges and to the race
+        // panel -- otherwise there's no way to reach either without
+        // closing the dialog blind first.
+        ovActions.appendChild(button("Race a Friend", "btn-gray", function () {
+          hideOverlay();
+          renderBar();
+          scrollToRacePanel();
+        }));
         ovActions.appendChild(button("Choose a challenge", "btn-gray", function () {
           hideOverlay();
           renderBar();
@@ -2180,7 +2197,13 @@
 
     // First paint (engine not up yet: buttons disabled until it is).
     renderAll();
-    showOverlay();
+    // A race invite link (?racejoin=) is here for exactly one reason --
+    // to join that room -- so skip the usual start dialog (which the
+    // mobile media query turns into a full-screen modal that would bury
+    // the Join box this same link just pre-filled) and go straight to
+    // the panel that actually matters right now.
+    if (linkedRaceCode) { hideOverlay(); scrollToRacePanel(); }
+    else showOverlay();
 
     // =====================================================================
     // Synthetic keyboard bridge into the SDL2/Emscripten engine
