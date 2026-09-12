@@ -2286,7 +2286,9 @@
     }
     var KEYS = {
       Space: ["Space", " ", 32], Control: ["ControlLeft", "Control", 17],
-      Enter: ["Enter", "Enter", 13], Escape: ["Escape", "Escape", 27]
+      Enter: ["Enter", "Enter", 13], Escape: ["Escape", "Escape", 27],
+      Backspace: ["Backspace", "Backspace", 8], // gamepad Back/View button -- see the restart binding below
+      ArrowUp: ["ArrowUp", "ArrowUp", 38], ArrowDown: ["ArrowDown", "ArrowDown", 40] // DOOM's own menu navigation
     };
     async function tap(name, holdMs) {
       var k = KEYS[name];
@@ -2433,6 +2435,121 @@
     setupStick("tc-look-joystick", "tc-look-joystick-knob", 27, 6, function (dx) {
       if (E) E.set_turn(dx);
     }, null, null, true);
+
+    // ---- Wired USB / Bluetooth gamepad support ----
+    // Ported from doom-assist's own gamepad support (same idea, same
+    // button layout) -- adapted to this project's E.* bridge (bindEngine
+    // above) instead of raw Module.ccall, and with Tab/automap dropped
+    // since this project has no map pane to toggle. The Gamepad API has
+    // no "axis changed"/"button changed" event -- browsers only fire
+    // gamepadconnected/gamepaddisconnected -- so this drives its own
+    // requestAnimationFrame poll of navigator.getGamepads() rather than
+    // hanging anything off an event listener.
+    //
+    // Button/axis indices below assume the "standard gamepad" mapping
+    // (https://w3c.github.io/gamepad/#remapping) -- the layout a wired
+    // Xbox controller reports, and what Chrome/Edge/Firefox all normalize
+    // known controllers to. A controller the browser can't recognize may
+    // report axes/buttons in a different order; there's no way to detect
+    // that from here, so this just assumes the common case.
+    var gpButtonState = {}; // button index -> was it down last frame?
+    var GP_DEADZONE = 0.15; // stick drift well inside this on most pads at rest
+
+    // Mirrors bindHoldButton's press/release pattern above, but driven by
+    // polled gamepad state instead of pointer events: dispatch a real
+    // keydown the frame a mapped button goes from up to down, and a real
+    // keyup the frame it goes back up. That one rule handles both
+    // "hold to fire/use" buttons and "tap to confirm/back/restart"
+    // buttons correctly with no separate cases.
+    var GP_KEY_BUTTONS = {
+      7: "Control",   // Right trigger (RT) -- Fire, same real key the touch Fire button uses
+      0: "Space",     // A -- Use, same real key the touch Use button uses
+      1: "Escape",    // B -- pause/menu-back, same as the touch Back button
+      9: "Enter",     // Start -- confirm the start dialog, same as pressing Enter
+      8: "Backspace", // Back/View -- Restart, same as pressing Backspace (restartChallenge above)
+      12: "ArrowUp",   // D-pad up -- DOOM's own menu navigation only
+      13: "ArrowDown"  // D-pad down -- DOOM's own menu navigation only
+    };
+    // Weapon-next has no bound key at all in this codebase (see tc-weapon's
+    // own comment above) -- same direct export used there, called once per
+    // press rather than through dispatchKey.
+    var GP_WEAPON_BUTTON = 3; // Y
+
+    // Picks which connected pad actually drives the game this frame:
+    // whichever slot currently has a deflected axis or a held button,
+    // falling back to the first connected slot when nothing is active
+    // (so movement still zeroes out correctly on release) -- guards
+    // against a silent decoy device squatting on slot 0 while the real
+    // controller sits in a later slot.
+    function pickControlPad(pads) {
+      var fallback = null;
+      for (var i = 0; i < pads.length; i++) {
+        var p = pads[i];
+        if (!p) continue;
+        if (!fallback) fallback = p;
+        for (var a = 0; a < p.axes.length; a++) {
+          if (Math.abs(p.axes[a]) > 0.05) return p;
+        }
+        for (var b = 0; b < p.buttons.length; b++) {
+          if (p.buttons[b] && p.buttons[b].pressed) return p;
+        }
+      }
+      return fallback;
+    }
+
+    function pollGamepad() {
+      requestAnimationFrame(pollGamepad);
+      var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      var pad = pickControlPad(pads);
+      if (!pad || !E) return;
+
+      // Left stick: move + strafe, right stick: turn -- identical meaning
+      // to the touch sticks feeding these same two exports just above. A
+      // gamepad axis already reports -1..1 with "up" as negative Y, the
+      // same sign convention the touch stick's screen-space dy uses, so
+      // no inversion is needed here.
+      var lx = pad.axes[0] || 0, ly = pad.axes[1] || 0, rx = pad.axes[2] || 0;
+      if (Math.abs(lx) < GP_DEADZONE) lx = 0;
+      if (Math.abs(ly) < GP_DEADZONE) ly = 0;
+      if (Math.abs(rx) < GP_DEADZONE) rx = 0;
+      E.set_move(Math.round(lx * 100), Math.round(ly * 100));
+      E.set_turn(Math.round(rx * 100));
+
+      for (var idx in GP_KEY_BUTTONS) {
+        var down = !!(pad.buttons[idx] && pad.buttons[idx].pressed);
+        if (down === !!gpButtonState[idx]) continue; // no change since last frame
+        gpButtonState[idx] = down;
+        var k = KEYS[GP_KEY_BUTTONS[idx]];
+        document.getElementById("canvas").focus();
+        dispatchKey(down ? "keydown" : "keyup", k[0], k[1], k[2]);
+      }
+
+      var weaponDown = !!(pad.buttons[GP_WEAPON_BUTTON] && pad.buttons[GP_WEAPON_BUTTON].pressed);
+      if (weaponDown && !gpButtonState[GP_WEAPON_BUTTON]) E.switch_weapon(1);
+      gpButtonState[GP_WEAPON_BUTTON] = weaponDown;
+    }
+
+    // Start the poll loop unconditionally at load, rather than waiting for
+    // gamepadconnected to fire first. That event is unreliable as a
+    // *trigger*: Chrome/Edge won't report a controller that was already
+    // plugged in before the page loaded until the browser actually sees a
+    // button press or stick move on it (privacy hardening against passive
+    // device fingerprinting) -- so gating the whole loop behind the event
+    // would mean a controller plugged in ahead of time never does
+    // anything, since nothing is polling to notice that first button
+    // press either. pollGamepad() itself is a no-op every frame
+    // navigator.getGamepads() reports nothing, so running it from the
+    // start costs nothing and has no failure mode to gate against.
+    pollGamepad();
+
+    window.addEventListener("gamepadconnected", function (e) {
+      toast("Controller connected: " + e.gamepad.id);
+    });
+    window.addEventListener("gamepaddisconnected", function (e) {
+      toast("Controller disconnected");
+      gpButtonState = {};
+      if (E) { E.set_move(0, 0); E.set_turn(0); }
+    });
 
     // =====================================================================
     // Emscripten module wiring
